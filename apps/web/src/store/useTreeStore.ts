@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export interface TreeNode {
   id: string;
@@ -56,6 +57,7 @@ interface TreeState {
   clipboard: { id: string; action: 'copy' | 'cut'; node: TreeNode } | null;
   destinationModalData: { id: string; action: 'move' | 'copy' } | null;
   iconPickerNodeId: string | null;
+  mindmapModalNodeId: string | null;
 
   toggleExpand: (id: string) => void;
   setFocus: (id: string) => void;
@@ -70,6 +72,8 @@ interface TreeState {
   closeDestinationModal: () => void;
   openIconPicker: (id: string) => void;
   closeIconPicker: () => void;
+  openMindmapModal: (id: string) => void;
+  closeMindmapModal: () => void;
 
   togglePin: (id: string) => void;
   addRecentView: (id: string) => void;
@@ -131,8 +135,10 @@ const getParentNode = (nodes: TreeNode[], targetId: string, parent: TreeNode | n
   return null;
 }
 
-export const useTreeStore = create<TreeState>((set, get) => ({
-  data: mockData,
+export const useTreeStore = create<TreeState>()(
+  persist(
+    (set, get) => ({
+      data: mockData,
   expandedIds: new Set<string>(),
   focusedId: null,
   selectedId: null,
@@ -147,6 +153,7 @@ export const useTreeStore = create<TreeState>((set, get) => ({
   clipboard: null,
   destinationModalData: null,
   iconPickerNodeId: null,
+  mindmapModalNodeId: null,
 
   toggleExpand: (id) => set((state) => {
     const newExpanded = new Set(state.expandedIds);
@@ -169,6 +176,8 @@ export const useTreeStore = create<TreeState>((set, get) => ({
   closeDestinationModal: () => set({ destinationModalData: null }),
   openIconPicker: (id) => set({ iconPickerNodeId: id }),
   closeIconPicker: () => set({ iconPickerNodeId: null }),
+  openMindmapModal: (id) => set({ mindmapModalNodeId: id }),
+  closeMindmapModal: () => set({ mindmapModalNodeId: null }),
 
   togglePin: (id) => set((state) => {
     const newPinned = new Set(state.pinnedIds);
@@ -456,4 +465,26 @@ export const useTreeStore = create<TreeState>((set, get) => ({
       }
     }
   }
-}));
+}),
+    {
+      name: 'tree-store',
+      partialize: (state) => ({
+        data: state.data,
+        expandedIds: Array.from(state.expandedIds),
+        hiddenIds: Array.from(state.hiddenIds),
+        pinnedIds: Array.from(state.pinnedIds),
+        recentIds: state.recentIds,
+      }),
+      merge: (persistedState: any, currentState) => {
+        if (!persistedState) return currentState;
+        return {
+          ...currentState,
+          ...persistedState,
+          expandedIds: new Set(persistedState.expandedIds || []),
+          hiddenIds: new Set(persistedState.hiddenIds || []),
+          pinnedIds: new Set(persistedState.pinnedIds || []),
+        };
+      },
+    }
+  )
+);

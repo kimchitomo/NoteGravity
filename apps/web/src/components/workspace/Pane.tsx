@@ -92,6 +92,43 @@ export const Pane: React.FC<PaneProps> = ({ pane, isThirdOfThree }) => {
               />
             </div>
           ))}
+          {pane.previewTab && !pane.tabs.find((t) => t.id === pane.previewTab!.id) && (
+            <div
+              key={pane.previewTab.id}
+              onClick={() => setActiveTab(pane.id, pane.previewTab!.id)}
+              onDoubleClick={() => addTabToPane(pane.id, pane.previewTab!)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '6px 12px',
+                backgroundColor: pane.activeTabId === pane.previewTab.id ? '#fff' : 'transparent',
+                border: '1px solid',
+                borderColor: pane.activeTabId === pane.previewTab.id ? '#eaeaea' : 'transparent',
+                borderBottom: 'none',
+                borderTopLeftRadius: '6px',
+                borderTopRightRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontStyle: 'italic',
+                fontWeight: pane.activeTabId === pane.previewTab.id ? 500 : 400,
+                color: pane.activeTabId === pane.previewTab.id ? '#333' : '#666',
+                minWidth: '100px',
+                maxWidth: '200px',
+              }}
+            >
+              <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {pane.previewTab.title}
+              </span>
+              <X
+                size={14}
+                style={{ marginLeft: '8px', cursor: 'pointer', opacity: 0.5 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeTabFromPane(pane.id, pane.previewTab!.id);
+                }}
+              />
+            </div>
+          )}
           <div
             onClick={handleAddTab}
             style={{

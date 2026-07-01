@@ -127,7 +127,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity
   }, [docId]); // Re-create editor when docId changes
 
   useEffect(() => {
-    if (editor && editor.isEmpty) {
+    if (editor) {
       const saved = localStorage.getItem(`note-content-${docId}`);
       if (saved) {
         editor.commands.setContent(saved);
@@ -151,7 +151,15 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity
 
       {/* Editor Content Area */}
       <div className="editor-scroll-area" style={{ display: 'flex', flexDirection: 'row', flex: 1, overflow: 'hidden' }}>
-        <div className="editor-document" style={{ flex: 1, overflowY: 'auto' }}>
+        <div 
+          className="editor-document" 
+          style={{ flex: 1, overflowY: 'auto' }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && editor) {
+              editor.commands.focus('start');
+            }
+          }}
+        >
           {editor && (
             <>
               <MiniToolbar editor={editor} />

@@ -6,6 +6,7 @@ import { SidebarContextMenu } from './sidebar/SidebarContextMenu';
 import { EmailModal } from './modals/EmailModal';
 import { DestinationPickerModal } from './modals/DestinationPickerModal';
 import { IconPickerModal } from './modals/IconPickerModal';
+import { AIMindmapModal } from './modals/AIMindmapModal';
 import { Plus, ChevronDown, ChevronRight } from 'lucide-react';
 
 const findNodeById = (nodes: any[], id: string): any => {
@@ -20,8 +21,8 @@ const findNodeById = (nodes: any[], id: string): any => {
 };
 
 const ShortcutItem = ({ node }: { node: any }) => {
-  const { setSelected, setFocus, addRecentView } = useTreeStore();
-  const { addTabToPane, activePaneId, panes } = useWorkspaceStore();
+  const { selectedId, setSelected, setFocus, addRecentView } = useTreeStore();
+  const { addTabToPane, setPreviewTab, activePaneId, panes } = useWorkspaceStore();
   
   if (!node) return null;
   
@@ -29,7 +30,19 @@ const ShortcutItem = ({ node }: { node: any }) => {
     <div 
       onClick={() => {
         setFocus(node.id);
+        const wasAlreadySelected = selectedId === node.id;
         setSelected(node.id);
+        if (node.type === 'note') {
+          const targetPaneId = activePaneId || panes[0].id;
+          if (wasAlreadySelected) {
+            addTabToPane(targetPaneId, { id: node.id, title: node.title });
+          } else {
+            setPreviewTab(targetPaneId, { id: node.id, title: node.title });
+          }
+          addRecentView(node.id);
+        }
+      }}
+      onDoubleClick={() => {
         if (node.type === 'note') {
           const targetPaneId = activePaneId || panes[0].id;
           addTabToPane(targetPaneId, { id: node.id, title: node.title });
@@ -40,7 +53,13 @@ const ShortcutItem = ({ node }: { node: any }) => {
         padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
         borderRadius: '6px', color: 'var(--text-color)', fontSize: '13px', margin: '2px 0'
       }}
-      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--hover-bg, #f0f0f0)'}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = 'var(--hover-bg, #f0f0f0)';
+        if (node.type === 'note') {
+          const targetPaneId = activePaneId || panes[0].id;
+          setPreviewTab(targetPaneId, { id: node.id, title: node.title });
+        }
+      }}
       onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
     >
       <span style={{ width: '16px', display: 'inline-flex', justifyContent: 'center', opacity: 0.6 }}>
@@ -54,7 +73,7 @@ const ShortcutItem = ({ node }: { node: any }) => {
 };
 
 export const Sidebar = () => {
-  const { data, moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected, closeContextMenu, emailModalNodeId, destinationModalData, iconPickerNodeId, addRootNode, pinnedIds, recentIds } = useTreeStore();
+  const { data, moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected, closeContextMenu, emailModalNodeId, destinationModalData, iconPickerNodeId, mindmapModalNodeId, addRootNode, pinnedIds, recentIds } = useTreeStore();
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   const [isPinnedExpanded, setIsPinnedExpanded] = useState(true);
@@ -88,7 +107,16 @@ export const Sidebar = () => {
         case 'Enter':
         case ' ':
           e.preventDefault();
-          if (focusedId) setSelected(focusedId);
+          if (focusedId) {
+            setSelected(focusedId);
+            const node = findNodeById(data, focusedId);
+            if (node && node.type === 'note') {
+              const workspaceState = useWorkspaceStore.getState();
+              const targetPaneId = workspaceState.activePaneId || workspaceState.panes[0].id;
+              workspaceState.addTabToPane(targetPaneId, { id: node.id, title: node.title });
+              useTreeStore.getState().addRecentView(node.id);
+            }
+          }
           break;
       }
     };
@@ -96,6 +124,17 @@ export const Sidebar = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected]);
+
+  useEffect(() => {
+    if (focusedId) {
+      const node = findNodeById(data, focusedId);
+      if (node && node.type === 'note') {
+        const workspaceState = useWorkspaceStore.getState();
+        const targetPaneId = workspaceState.activePaneId || workspaceState.panes[0].id;
+        workspaceState.setPreviewTab(targetPaneId, { id: node.id, title: node.title });
+      }
+    }
+  }, [focusedId, data]);
 
   return (
     <div 
@@ -152,6 +191,7 @@ export const Sidebar = () => {
       {emailModalNodeId && <EmailModal />}
       {destinationModalData && <DestinationPickerModal />}
       {iconPickerNodeId && <IconPickerModal />}
+      {mindmapModalNodeId && <AIMindmapModal />}
     </div>
   );
 };

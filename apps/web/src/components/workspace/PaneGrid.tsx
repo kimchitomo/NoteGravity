@@ -20,6 +20,22 @@ export const PaneGrid = () => {
     }
   };
 
+  if (panes.length === 0) {
+    return (
+      <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-color)' }}>
+        <div style={{ textAlign: 'center', color: '#666' }}>
+          <div style={{ marginBottom: '16px', fontSize: '16px' }}>Vùng làm việc trống</div>
+          <button 
+            onClick={() => useWorkspaceStore.getState().addPane()}
+            style={{ padding: '8px 16px', backgroundColor: '#0066cc', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 500 }}
+          >
+            Mở vùng làm việc mới
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{

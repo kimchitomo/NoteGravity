@@ -10,7 +10,7 @@ interface TreeItemProps {
 
 export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
   const { expandedIds, focusedId, selectedId, toggleExpand, setFocus, setSelected, openContextMenu, hiddenIds, editingNodeId, renameNode, setEditingNodeId, moveNodeTo, moveNodeBefore, moveNodeAfter, addNode, pinnedIds, togglePin, addRecentView } = useTreeStore();
-  const { addTabToPane, activePaneId, panes } = useWorkspaceStore();
+  const { addTabToPane, setPreviewTab, activePaneId, panes } = useWorkspaceStore();
   
   const [inputValue, setInputValue] = useState(node.title);
   const [dragOverPos, setDragOverPos] = useState<'top' | 'middle' | 'bottom' | null>(null);
@@ -103,10 +103,15 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
     if (hasChildren) {
       toggleExpand(node.id);
     } else {
+      const wasAlreadySelected = selectedId === node.id;
       setSelected(node.id);
       if (node.type === 'note') {
         const targetPaneId = activePaneId || panes[0].id;
-        addTabToPane(targetPaneId, { id: node.id, title: node.title });
+        if (wasAlreadySelected) {
+          addTabToPane(targetPaneId, { id: node.id, title: node.title });
+        } else {
+          setPreviewTab(targetPaneId, { id: node.id, title: node.title });
+        }
         addRecentView(node.id);
       }
     }
@@ -193,7 +198,15 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
       <div 
         className={`tree-node ${node.type}`} 
         onClick={handleClick}
-        onDoubleClick={() => { setEditingNodeId(node.id); addRecentView(node.id); }}
+        onDoubleClick={() => { 
+          if (node.type === 'note') {
+            const targetPaneId = activePaneId || panes[0].id;
+            addTabToPane(targetPaneId, { id: node.id, title: node.title });
+          } else {
+            setEditingNodeId(node.id); 
+          }
+          addRecentView(node.id); 
+        }}
         onContextMenu={handleContextMenu}
         draggable={!isEditing}
         onDragStart={handleDragStart}
@@ -221,6 +234,11 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
         onMouseEnter={(e) => {
           setIsHovered(true);
           if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--hover-bg, #fafafa)';
+          
+          if (node.type === 'note') {
+            const targetPaneId = activePaneId || panes[0].id;
+            setPreviewTab(targetPaneId, { id: node.id, title: node.title });
+          }
         }}
         onMouseLeave={(e) => {
           setIsHovered(false);
@@ -273,7 +291,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
             <span style={{ fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: node.type === 'notebook' ? 500 : 400, flex: 1 }}>
               {node.title}
             </span>
-            {(isHovered || isPinned) && !isEditing && (
+            {(isHovered || isSelected || isPinned) && !isEditing && (
               <div style={{ display: 'flex', gap: '4px', opacity: 0.7 }}>
                 <button 
                   onClick={(e) => { e.stopPropagation(); togglePin(node.id); }}
@@ -282,7 +300,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
                 >
                   {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
                 </button>
-                {isHovered && (
+                {(isHovered || isSelected) && (
                   <>
                     <button 
                       onClick={(e) => { e.stopPropagation(); addNode(node.id, 'note', 'Ghi chú mới'); if (!expandedIds.has(node.id)) toggleExpand(node.id); }}

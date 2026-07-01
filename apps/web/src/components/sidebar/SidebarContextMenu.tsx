@@ -1,14 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 import { useTreeStore } from '../../store/useTreeStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
-import { Edit2, Eye, Trash2, Copy, Scissors, Clipboard, MoveRight, CopyPlus, Image as ImageIcon, ArrowUp, ArrowDown, Mail, Plus, EyeOff, Eye as EyeIcon } from 'lucide-react';
+import { Edit2, Eye, Trash2, Copy, Scissors, Clipboard, MoveRight, CopyPlus, Image as ImageIcon, ArrowUp, ArrowDown, Mail, Plus, EyeOff, Eye as EyeIcon, BrainCircuit } from 'lucide-react';
 
 export const SidebarContextMenu = () => {
   const { 
     contextMenuNodeId, contextMenuPos, closeContextMenu, 
     openEmailModal, addNode, deleteNode, hideNode, unhideNode, hiddenIds,
     setSelected, setEditingNodeId, copyToClipboard, pasteFromClipboard, clipboard,
-    moveNodeUp, moveNodeDown, openDestinationModal, openIconPicker, data
+    moveNodeUp, moveNodeDown, openDestinationModal, openIconPicker, data, openMindmapModal
   } = useTreeStore();
   
   const { addTabToPane, activePaneId, panes } = useWorkspaceStore();
@@ -28,6 +28,26 @@ export const SidebarContextMenu = () => {
   }, [contextMenuPos, closeContextMenu]);
 
   if (!contextMenuNodeId || !contextMenuPos) return null;
+
+  const menuWidth = 220;
+  const menuHeight = 450; // estimated height
+  
+  let adjustedLeft = contextMenuPos.x;
+  let adjustedTop = contextMenuPos.y;
+  
+  // Prevent horizontal clipping
+  if (adjustedLeft + menuWidth > window.innerWidth) {
+    adjustedLeft = window.innerWidth - menuWidth - 10;
+  }
+  
+  // Prevent vertical clipping
+  if (adjustedTop + menuHeight > window.innerHeight) {
+    adjustedTop = window.innerHeight - menuHeight - 10;
+  }
+  
+  // Clamp to screen edges on very small screens
+  adjustedTop = Math.max(10, adjustedTop);
+  adjustedLeft = Math.max(10, adjustedLeft);
 
   const handleAction = (e: React.MouseEvent, action: string) => {
     e.stopPropagation();
@@ -69,6 +89,7 @@ export const SidebarContextMenu = () => {
     if (action === 'move_to') openDestinationModal(contextMenuNodeId, 'move');
     if (action === 'copy_to') openDestinationModal(contextMenuNodeId, 'copy');
     if (action === 'change_icon') openIconPicker(contextMenuNodeId);
+    if (action === 'ai_mindmap') openMindmapModal(contextMenuNodeId);
     
     closeContextMenu();
   };
@@ -97,8 +118,8 @@ export const SidebarContextMenu = () => {
       ref={menuRef}
       style={{
         position: 'fixed',
-        top: Math.min(contextMenuPos.y, window.innerHeight - 450), // Prevent clipping
-        left: contextMenuPos.x,
+        top: adjustedTop,
+        left: adjustedLeft,
         backgroundColor: '#fff',
         border: '1px solid #eaeaea',
         boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
@@ -106,12 +127,15 @@ export const SidebarContextMenu = () => {
         zIndex: 1000,
         borderRadius: '6px',
         minWidth: '200px',
+        maxHeight: 'calc(100vh - 20px)',
+        overflowY: 'auto'
       }}
-      onMouseLeave={closeContextMenu}
     >
       <MenuItem icon={Plus} label="Thêm Ghi chú" action="add_note" />
       <MenuItem icon={Plus} label="Thêm Thư mục" action="add_folder" />
-      <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
+      <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '4px 0' }} />
+      <MenuItem icon={BrainCircuit} label="AI MindMap" action="ai_mindmap" />
+      <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '4px 0' }} />
       <MenuItem icon={Eye} label="Xem" action="view" />
       <MenuItem icon={Edit2} label="Sửa (Đổi tên)" action="edit" />
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />

@@ -84,6 +84,9 @@ export const Sidebar = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Allow default behavior if user is typing in an input (e.g. renaming)
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      
       // Only handle if focus is inside sidebar
       if (!sidebarRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return;
       
@@ -103,6 +106,12 @@ export const Sidebar = () => {
         case 'ArrowLeft':
           e.preventDefault();
           moveFocusLeft();
+          break;
+        case 'F2':
+          e.preventDefault();
+          if (focusedId) {
+            useTreeStore.getState().setEditingNodeId(focusedId);
+          }
           break;
         case 'Enter':
         case ' ':

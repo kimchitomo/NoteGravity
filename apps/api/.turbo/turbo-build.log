@@ -1,0 +1,8 @@
+
+> api@0.0.0 build C:\Users\Admin\Desktop\NoteAntiGravity\apps\api
+> nest build
+
+
+ Error  Could not find TypeScript configuration file "tsconfig.json". Please, ensure that you are running this command in the appropriate directory (inside Nest workspace).
+
+ ELIFECYCLE  Command failed with exit code 1.

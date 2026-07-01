@@ -1,0 +1,12 @@
+{
+  "name": "worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "bullmq": "^4.14.1",
+    "ioredis": "^5.3.2"
+  }
+}

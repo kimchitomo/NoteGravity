@@ -1,0 +1,239 @@
+/* Minimalist UI Vibes - Notion/Craft inspired */
+:root {
+  --bg-color: #ffffff;
+  --text-color: #37352f;
+  --sidebar-bg: #f7f6f3;
+  --border-color: #e9e9e7;
+  --accent-color: #2383e2;
+  --hover-bg: #efefed;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #191919;
+    --text-color: #ffffff;
+    --sidebar-bg: #202020;
+    --border-color: #2f2f2f;
+    --accent-color: #2eaadc;
+    --hover-bg: #2c2c2c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(135, 131, 120, 0.3);
+  border-radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+}
+
+.app-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+}
+
+/* Editor Container & Layout */
+.editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background-color: var(--bg-color);
+}
+
+.editor-header {
+  padding: 24px 48px 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.editor-date {
+  color: #9ca3af;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.editor-document {
+  max-width: 900px;
+  width: 100%;
+  padding: 0 48px 96px;
+}
+
+/* Tiptap Editor Minimalist Styles */
+.ProseMirror {
+  outline: none;
+  line-height: 1.6;
+  font-size: 16px;
+  min-height: 50vh;
+}
+.ProseMirror p {
+  margin-bottom: 0.5em;
+  margin-top: 0.5em;
+}
+.ProseMirror h1 {
+  font-size: 2.5em;
+  font-weight: 700;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.2;
+}
+.ProseMirror h2 {
+  font-size: 1.8em;
+  font-weight: 600;
+  margin-top: 1.4em;
+  margin-bottom: 0.5em;
+}
+.ProseMirror h3 {
+  font-size: 1.4em;
+  font-weight: 600;
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+}
+.ProseMirror blockquote {
+  border-left: 3px solid var(--text-color);
+  padding-left: 1rem;
+  margin-left: 0;
+  font-style: italic;
+  opacity: 0.8;
+}
+.ProseMirror img {
+  max-width: 100%;
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Main Ribbon Toolbar */
+.main-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  background-color: var(--bg-color);
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+.toolbar-btn:hover {
+  background-color: var(--hover-bg);
+  opacity: 1;
+}
+
+.toolbar-btn.is-active {
+  background-color: rgba(35, 131, 226, 0.1);
+  color: var(--accent-color);
+  opacity: 1;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background-color: var(--border-color);
+  margin: 0 4px;
+}
+
+/* Mini Bubble Toolbar */
+.mini-toolbar {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  gap: 2px;
+  border: 1px solid var(--border-color);
+}
+
+.mini-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.1s ease;
+  opacity: 0.8;
+}
+
+.mini-btn:hover {
+  background-color: var(--hover-bg);
+  opacity: 1;
+}
+
+.mini-btn.is-active {
+  background-color: rgba(35, 131, 226, 0.1);
+  color: var(--accent-color);
+  opacity: 1;
+}
+
+.mini-divider {
+  width: 1px;
+  height: 20px;
+  background-color: var(--border-color);
+  margin: 0 4px;
+}

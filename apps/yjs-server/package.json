@@ -1,0 +1,14 @@
+{
+  "name": "yjs-server",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "start:dev": "nest start --watch"
+  },
+  "dependencies": {
+    "@nestjs/websockets": "^10.0.0",
+    "@nestjs/platform-socket.io": "^10.0.0",
+    "yjs": "^13.6.8",
+    "y-websocket": "^1.5.0"
+  }
+}

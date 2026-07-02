@@ -197,6 +197,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
     <div style={{ marginLeft: `${level * 16}px` }}>
       <div 
         className={`tree-node ${node.type}`} 
+        data-node-id={node.id}
         onClick={handleClick}
         onDoubleClick={() => { 
           if (node.type === 'note') {

@@ -187,7 +187,7 @@ export const useTreeStore = create<TreeState>()(
   }),
 
   addRecentView: (id) => set((state) => {
-    const newRecents = [id, ...state.recentIds.filter(i => i !== id)].slice(0, 9);
+    const newRecents = [id, ...state.recentIds.filter(i => i !== id)].slice(0, 70);
     return { recentIds: newRecents };
   }),
 

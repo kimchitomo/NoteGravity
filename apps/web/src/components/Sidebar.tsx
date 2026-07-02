@@ -7,7 +7,7 @@ import { EmailModal } from './modals/EmailModal';
 import { DestinationPickerModal } from './modals/DestinationPickerModal';
 import { IconPickerModal } from './modals/IconPickerModal';
 import { AIMindmapModal } from './modals/AIMindmapModal';
-import { Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, PinOff, Locate } from 'lucide-react';
 
 const findNodeById = (nodes: any[], id: string): any => {
   for (const n of nodes) {
@@ -20,11 +20,52 @@ const findNodeById = (nodes: any[], id: string): any => {
   return null;
 };
 
-const ShortcutItem = ({ node }: { node: any }) => {
-  const { selectedId, setSelected, setFocus, addRecentView } = useTreeStore();
+const findParentNode = (nodes: any[], targetId: string, parent: any = null): any => {
+  for (const node of nodes) {
+    if (node.id === targetId) return parent;
+    if (node.children) {
+      const found = findParentNode(node.children, targetId, node);
+      if (found) return found;
+    }
+  }
+  return null;
+};
+
+const ShortcutItem = ({ node, isPinned }: { node: any, isPinned?: boolean }) => {
+  const { selectedId, setSelected, setFocus, addRecentView, togglePin } = useTreeStore();
   const { addTabToPane, setPreviewTab, activePaneId, panes } = useWorkspaceStore();
+  const [isHovered, setIsHovered] = useState(false);
   
   if (!node) return null;
+  
+  const handleLocate = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const state = useTreeStore.getState();
+    const parentsToExpand = [];
+    let curr = node.id;
+    while(true) {
+      const parent = findParentNode(state.data, curr);
+      if (parent) {
+        parentsToExpand.push(parent.id);
+        curr = parent.id;
+      } else {
+        break;
+      }
+    }
+    const newExpanded = new Set(state.expandedIds);
+    parentsToExpand.forEach(id => newExpanded.add(id));
+    useTreeStore.setState({ expandedIds: newExpanded });
+    
+    setFocus(node.id);
+    setSelected(node.id);
+    
+    setTimeout(() => {
+      const el = document.querySelector(`[data-node-id="${node.id}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  };
   
   return (
     <div 
@@ -55,12 +96,16 @@ const ShortcutItem = ({ node }: { node: any }) => {
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.backgroundColor = 'var(--hover-bg, #f0f0f0)';
+        setIsHovered(true);
         if (node.type === 'note') {
           const targetPaneId = activePaneId || panes[0].id;
           setPreviewTab(targetPaneId, { id: node.id, title: node.title });
         }
       }}
-      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = 'transparent';
+        setIsHovered(false);
+      }}
     >
       <span style={{ width: '16px', display: 'inline-flex', justifyContent: 'center', opacity: 0.6 }}>
         {node.customIcon || (node.type === 'notebook' ? '📁' : '📄')}
@@ -68,6 +113,16 @@ const ShortcutItem = ({ node }: { node: any }) => {
       <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, fontWeight: node.type === 'notebook' ? 500 : 400 }}>
         {node.title}
       </span>
+      {isPinned && isHovered && (
+        <div style={{ display: 'flex', gap: '4px', opacity: 0.7 }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={handleLocate} title="Đi tới vị trí" style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', color: 'inherit' }}>
+            <Locate size={14} />
+          </button>
+          <button onClick={() => togglePin(node.id)} title="Bỏ ghim" style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', color: 'inherit' }}>
+            <PinOff size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -80,7 +135,26 @@ export const Sidebar = () => {
   const [isRecentExpanded, setIsRecentExpanded] = useState(true);
 
   const pinnedNodes = Array.from(pinnedIds).map(id => findNodeById(data, id)).filter(Boolean).slice(0, 5);
-  const recentNodes = recentIds.map(id => findNodeById(data, id)).filter(Boolean).slice(0, 9);
+  const recentNodes = recentIds.map(id => findNodeById(data, id)).filter(Boolean).slice(0, 70);
+
+  const recentCollapseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const resetRecentTimer = () => {
+    if (recentCollapseTimeoutRef.current) {
+      clearTimeout(recentCollapseTimeoutRef.current);
+    }
+    recentCollapseTimeoutRef.current = setTimeout(() => {
+      setIsRecentExpanded(false);
+    }, 3000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recentCollapseTimeoutRef.current) {
+        clearTimeout(recentCollapseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -173,7 +247,7 @@ export const Sidebar = () => {
               {isPinnedExpanded ? <ChevronDown size={14} style={{ marginRight: '4px' }} /> : <ChevronRight size={14} style={{ marginRight: '4px' }} />}
               Đã ghim
             </div>
-            {isPinnedExpanded && pinnedNodes.map(n => <ShortcutItem key={n.id} node={n} />)}
+            {isPinnedExpanded && pinnedNodes.map(n => <ShortcutItem key={n.id} node={n} isPinned={true} />)}
           </div>
         )}
 
@@ -186,7 +260,14 @@ export const Sidebar = () => {
               {isRecentExpanded ? <ChevronDown size={14} style={{ marginRight: '4px' }} /> : <ChevronRight size={14} style={{ marginRight: '4px' }} />}
               Gần đây
             </div>
-            {isRecentExpanded && recentNodes.map(n => <ShortcutItem key={n.id} node={n} />)}
+            {isRecentExpanded && (
+              <div 
+                style={{ maxHeight: '170px', overflowY: 'auto', overflowX: 'hidden', paddingRight: '4px' }}
+                onScroll={resetRecentTimer}
+              >
+                {recentNodes.map(n => <ShortcutItem key={n.id} node={n} />)}
+              </div>
+            )}
           </div>
         )}
 

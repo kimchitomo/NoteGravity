@@ -77,6 +77,9 @@ interface TreeState {
     isActive: boolean;
   } | null;
 
+  offlineAsrDevice: 'webgpu' | 'wasm';
+  setOfflineAsrDevice: (device: 'webgpu' | 'wasm') => void;
+
   toggleExpand: (id: string) => void;
   setFocus: (id: string) => void;
   toggleLock: (id: string) => void;
@@ -165,14 +168,35 @@ const initTTSWorker = () => {
   if (!ttsWorker) {
     ttsWorker = new Worker(new URL('../workers/tts.worker.ts', import.meta.url), { type: 'module' });
     ttsWorker.onmessage = (e) => {
-        const { status, audio, sampling_rate, error } = e.data;
+        const { status, audio, sampling_rate, error, text } = e.data;
         if (status === 'complete' && audio) {
             playAudio(audio, sampling_rate);
+            
+            if ('Notification' in window) {
+              if (Notification.permission === 'granted') {
+                new Notification('NoteGravity', { body: text });
+              }
+            }
         } else if (status === 'error') {
             console.error('TTS Worker Error:', error);
         }
     };
     ttsWorker.postMessage({ type: 'INIT' });
+  }
+};
+
+export let asrWorker: Worker | null = null;
+export const initAsrWorker = (device: 'wasm' | 'webgpu') => {
+  if (typeof window === 'undefined') return;
+  if (!asrWorker) {
+    asrWorker = new Worker(new URL('../workers/asr.worker.ts', import.meta.url), { type: 'module' });
+  }
+  asrWorker.postMessage({ type: 'INIT', device });
+};
+export const terminateAsrWorker = () => {
+  if (asrWorker) {
+    asrWorker.terminate();
+    asrWorker = null;
   }
 };
 
@@ -183,14 +207,8 @@ const announce = (message: string) => {
     }
     
     if ('Notification' in window) {
-      if (Notification.permission === 'granted') {
-        new Notification('NoteGravity', { body: message });
-      } else if (Notification.permission !== 'denied') {
-        Notification.requestPermission().then(permission => {
-          if (permission === 'granted') {
-            new Notification('NoteGravity', { body: message });
-          }
-        });
+      if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        Notification.requestPermission();
       }
     }
   }
@@ -262,6 +280,9 @@ export const useTreeStore = create<TreeState>()(
   schedulePinModalNodeIds: null,
   highlightedBranchId: null,
   pinSchedule: null,
+  offlineAsrDevice: 'webgpu',
+
+  setOfflineAsrDevice: (device) => set({ offlineAsrDevice: device }),
 
   toggleExpand: (id) => set((state) => {
     const newExpanded = new Set(state.expandedIds);

@@ -1,4 +1,4 @@
-import { pipeline, env } from '@xenova/transformers';
+import { pipeline, env } from '@huggingface/transformers';
 
 // Configure environment
 env.allowLocalModels = false;
@@ -54,6 +54,7 @@ self.onmessage = async (event: MessageEvent) => {
                 status: 'complete',
                 audio: out.audio,
                 sampling_rate: out.sampling_rate,
+                text,
                 id
             });
         } catch (error: any) {

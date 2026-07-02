@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TreeNode, useTreeStore } from '../store/useTreeStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
-import { Plus, MoreHorizontal, Pin, PinOff, Mic, MicOff, Delete, Lock, Unlock } from 'lucide-react';
+import { Plus, MoreHorizontal, Pin, PinOff, Mic, Delete, Lock, Unlock } from 'lucide-react';
+import { SpeechRecognitionModal } from './modals/SpeechRecognitionModal';
 
 interface TreeItemProps {
   node: TreeNode;
@@ -10,7 +11,7 @@ interface TreeItemProps {
 }
 
 export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlighted = false }) => {
-  const { expandedIds, focusedId, selectedIds, toggleExpand, setFocus, setSelected, selectRange, openContextMenu, hiddenIds, editingNodeId, renameNode, setEditingNodeId, moveNodesTo, moveNodesBefore, moveNodesAfter, addNode, pinnedIds, togglePin, addRecentView, highlightedBranchId, lockedIds, toggleLock } = useTreeStore();
+  const { expandedIds, focusedId, selectedIds, toggleExpand, setFocus, setSelected, selectRange, openContextMenu, hiddenIds, editingNodeId, renameNode, setEditingNodeId, moveNodesTo, moveNodesBefore, moveNodesAfter, addNode, pinnedIds, togglePin, addRecentView, highlightedBranchId, lockedIds, toggleLock, offlineAsrDevice, setOfflineAsrDevice } = useTreeStore();
   const { addTabToPane, setPreviewTab, activePaneId, panes } = useWorkspaceStore();
   
   const isHighlightRoot = highlightedBranchId === node.id;
@@ -31,60 +32,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
   const isLocked = lockedIds.has(node.id);
 
   const hasChildren = node.children && node.children.length > 0;
-
-  const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window)) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = false;
-      recognition.lang = 'vi-VN';
-
-      recognition.onresult = (event: any) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          }
-        }
-        if (finalTranscript) {
-          setInputValue((prev) => (prev ? prev + ' ' : '') + finalTranscript.trim());
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error('Speech recognition error', event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isEditing && isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    }
-  }, [isEditing, isListening]);
-
-  const toggleListening = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      recognitionRef.current?.start();
-      setIsListening(true);
-    }
-  };
+  const [isSpeechModalOpen, setIsSpeechModalOpen] = useState(false);
 
   const deleteLastWord = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -310,27 +258,47 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
           )}
         </div>
         {isEditing ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div 
+            style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                handleRenameSubmit();
+              }
+            }}
+          >
             <input 
               ref={inputRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onBlur={handleRenameSubmit}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleRenameSubmit();
                 if (e.key === 'Escape') { setInputValue(node.title); setEditingNodeId(null); }
               }}
               onClick={(e) => e.stopPropagation()}
-              style={{ flex: 1, padding: '2px 4px', border: '1px solid #0066cc', borderRadius: '4px', outline: 'none', width: '50px' }}
+              style={{ flex: 1, padding: '2px 4px', border: '1px solid #0066cc', borderRadius: '4px', outline: 'none', minWidth: '30px', width: '30px' }}
             />
-            <button 
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={toggleListening}
-              title={isListening ? "Dừng nhập liệu giọng nói" : "Nhập liệu giọng nói tiếng Việt"}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: isListening ? '#ef4444' : '#666', padding: '2px', display: 'flex', alignItems: 'center' }}
-            >
-              {isListening ? <MicOff size={14} /> : <Mic size={14} />}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+              <button 
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  let currentInput = inputValue;
+                  if (inputRef.current) {
+                      const start = inputRef.current.selectionStart || 0;
+                      const end = inputRef.current.selectionEnd || 0;
+                      if (end > start) {
+                          currentInput = currentInput.substring(0, start) + (start > 0 ? ' ' : '') + currentInput.substring(end);
+                          setInputValue(currentInput.trim());
+                      }
+                  }
+                  setIsSpeechModalOpen(true);
+                }}
+                title="Mở hộp thoại Nhận diện Giọng nói"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', padding: '2px', display: 'flex', alignItems: 'center' }}
+              >
+                <Mic size={14} />
+              </button>
+            </div>
             <button 
               onMouseDown={(e) => e.preventDefault()}
               onClick={deleteLastWord}
@@ -414,6 +382,20 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
             <TreeItem key={child.id} node={child} level={level + 1} isHighlighted={shouldHighlight} />
           ))}
         </div>
+      )}
+      
+      {isSpeechModalOpen && (
+        <SpeechRecognitionModal 
+           initialText={inputValue}
+           onClose={() => setIsSpeechModalOpen(false)}
+           onApply={(text) => {
+              const final = text.trim();
+              setInputValue(final);
+              renameNode(node.id, final || node.title);
+              setEditingNodeId(null);
+              setIsSpeechModalOpen(false);
+           }}
+        />
       )}
     </div>
   );

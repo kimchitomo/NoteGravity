@@ -3,7 +3,7 @@ import { useTreeStore } from '../../store/useTreeStore';
 import { Mail, CheckCircle2, Loader2, X } from 'lucide-react';
 
 export const EmailModal = () => {
-  const { emailModalNodeId, closeEmailModal } = useTreeStore();
+  const { emailModalNodeIds, closeEmailModal } = useTreeStore();
   const [status, setStatus] = useState<'idle' | 'sending' | 'success'>('idle');
   const [recipient, setRecipient] = useState('');
   const [server, setServer] = useState('');
@@ -12,7 +12,7 @@ export const EmailModal = () => {
     setStatus('sending');
     setTimeout(() => {
       setStatus('success');
-      console.log(`Email sent successfully for note ${emailModalNodeId} to ${recipient} via ${server}.`);
+      console.log(`Email sent successfully for notes ${emailModalNodeIds?.join(', ')} to ${recipient} via ${server}.`);
     }, 2000);
   };
 

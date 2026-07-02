@@ -1,28 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TreeNode, useTreeStore } from '../store/useTreeStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
-import { Plus, MoreHorizontal, Pin, PinOff, Mic, MicOff, Delete } from 'lucide-react';
+import { Plus, MoreHorizontal, Pin, PinOff, Mic, MicOff, Delete, Lock, Unlock } from 'lucide-react';
 
 interface TreeItemProps {
   node: TreeNode;
   level?: number;
+  isHighlighted?: boolean;
 }
 
-export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
-  const { expandedIds, focusedId, selectedId, toggleExpand, setFocus, setSelected, openContextMenu, hiddenIds, editingNodeId, renameNode, setEditingNodeId, moveNodeTo, moveNodeBefore, moveNodeAfter, addNode, pinnedIds, togglePin, addRecentView } = useTreeStore();
+export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlighted = false }) => {
+  const { expandedIds, focusedId, selectedIds, toggleExpand, setFocus, setSelected, selectRange, openContextMenu, hiddenIds, editingNodeId, renameNode, setEditingNodeId, moveNodesTo, moveNodesBefore, moveNodesAfter, addNode, pinnedIds, togglePin, addRecentView, highlightedBranchId, lockedIds, toggleLock } = useTreeStore();
   const { addTabToPane, setPreviewTab, activePaneId, panes } = useWorkspaceStore();
+  
+  const isHighlightRoot = highlightedBranchId === node.id;
+  const shouldHighlight = isHighlightRoot || isHighlighted;
   
   const [inputValue, setInputValue] = useState(node.title);
   const [dragOverPos, setDragOverPos] = useState<'top' | 'middle' | 'bottom' | null>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState<{ top: number, left: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isExpanded = expandedIds.has(node.id);
   const isFocused = focusedId === node.id;
-  const isSelected = selectedId === node.id;
+  const isSelected = selectedIds.has(node.id);
   const isHidden = hiddenIds.has(node.id);
   const isEditing = editingNodeId === node.id;
   const isPinned = pinnedIds.has(node.id);
+  const isLocked = lockedIds.has(node.id);
 
   const hasChildren = node.children && node.children.length > 0;
 
@@ -100,20 +106,29 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
     e.stopPropagation();
     if (isEditing) return; // Prevent collapse/expand when clicking input
     setFocus(node.id);
-    if (hasChildren) {
-      toggleExpand(node.id);
+
+    const multi = e.ctrlKey || e.metaKey;
+    const shift = e.shiftKey;
+    const wasAlreadySelected = selectedIds.has(node.id);
+    
+    if (shift) {
+      selectRange(node.id);
     } else {
-      const wasAlreadySelected = selectedId === node.id;
-      setSelected(node.id);
-      if (node.type === 'note') {
-        const targetPaneId = activePaneId || panes[0].id;
-        if (wasAlreadySelected) {
-          addTabToPane(targetPaneId, { id: node.id, title: node.title });
-        } else {
-          setPreviewTab(targetPaneId, { id: node.id, title: node.title });
-        }
-        addRecentView(node.id);
+      setSelected(node.id, multi);
+    }
+
+    if (node.type === 'note' && !multi && !shift) {
+      const targetPaneId = activePaneId || panes[0].id;
+      if (wasAlreadySelected) {
+        addTabToPane(targetPaneId, { id: node.id, title: node.title });
+      } else {
+        setPreviewTab(targetPaneId, { id: node.id, title: node.title });
       }
+      addRecentView(node.id);
+    }
+
+    if (hasChildren && !multi) {
+      toggleExpand(node.id);
     }
   };
 
@@ -135,8 +150,19 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
   };
 
   const handleDragStart = (e: React.DragEvent) => {
+    if (isLocked) {
+      e.preventDefault();
+      alert("Mục này đang bị khóa. Hãy mở khóa để di chuyển!");
+      document.getElementById(`lock-icon-${node.id}`)?.focus();
+      return;
+    }
     e.stopPropagation();
-    e.dataTransfer.setData('text/plain', node.id);
+    let dragIds = [node.id];
+    if (selectedIds.has(node.id)) {
+      dragIds = Array.from(selectedIds);
+    }
+    e.dataTransfer.setData('application/json', JSON.stringify(dragIds));
+    e.dataTransfer.setData('text/plain', node.id); // Fallback
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -152,11 +178,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
     } else if (y > height * 0.75) {
       setDragOverPos('bottom');
     } else {
-      if (node.type === 'notebook') {
-        setDragOverPos('middle');
-      } else {
-        setDragOverPos(y < height / 2 ? 'top' : 'bottom');
-      }
+      setDragOverPos('middle');
     }
   };
 
@@ -169,17 +191,33 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const sourceId = e.dataTransfer.getData('text/plain');
+    
+    let sourceIds: string[] = [];
+    try {
+      const jsonData = e.dataTransfer.getData('application/json');
+      if (jsonData) {
+        sourceIds = JSON.parse(jsonData);
+      } else {
+        const textData = e.dataTransfer.getData('text/plain');
+        if (textData) sourceIds = [textData];
+      }
+    } catch {
+      const textData = e.dataTransfer.getData('text/plain');
+      if (textData) sourceIds = [textData];
+    }
+    
     const pos = dragOverPos;
     setDragOverPos(null);
     
-    if (sourceId && sourceId !== node.id) {
+    const validSourceIds = sourceIds.filter(id => id !== node.id);
+    
+    if (validSourceIds.length > 0) {
       if (pos === 'top') {
-        moveNodeBefore(sourceId, node.id);
+        moveNodesBefore(validSourceIds, node.id);
       } else if (pos === 'bottom') {
-        moveNodeAfter(sourceId, node.id);
-      } else if (pos === 'middle' && node.type === 'notebook') {
-        moveNodeTo(sourceId, node.id);
+        moveNodesAfter(validSourceIds, node.id);
+      } else if (pos === 'middle') {
+        moveNodesTo(validSourceIds, node.id);
       }
     }
   };
@@ -189,6 +227,10 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
   let borderBottom = 'none';
   let backgroundColor = isSelected ? 'var(--hover-bg, #f0f0f0)' : 'transparent';
   
+  if (!isSelected && dragOverPos !== 'middle' && shouldHighlight) {
+     backgroundColor = 'rgba(0, 102, 204, 0.04)';
+  }
+
   if (dragOverPos === 'top') borderTop = '2px solid #0066cc';
   if (dragOverPos === 'bottom') borderBottom = '2px solid #0066cc';
   if (dragOverPos === 'middle') backgroundColor = '#e0f2fe';
@@ -200,6 +242,11 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
         data-node-id={node.id}
         onClick={handleClick}
         onDoubleClick={() => { 
+          if (isLocked) {
+            alert("Mục này đang bị khóa. Hãy mở khóa để thao tác!");
+            document.getElementById(`lock-icon-${node.id}`)?.focus();
+            return;
+          }
           if (node.type === 'note') {
             const targetPaneId = activePaneId || panes[0].id;
             addTabToPane(targetPaneId, { id: node.id, title: node.title });
@@ -234,7 +281,11 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
         }}
         onMouseEnter={(e) => {
           setIsHovered(true);
-          if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--hover-bg, #fafafa)';
+          const rect = e.currentTarget.getBoundingClientRect();
+          setTooltipPos({ top: rect.top, left: rect.right + 10 });
+          if (!isSelected) {
+            e.currentTarget.style.backgroundColor = shouldHighlight ? 'rgba(0, 102, 204, 0.08)' : 'var(--hover-bg, #fafafa)';
+          }
           
           if (node.type === 'note') {
             const targetPaneId = activePaneId || panes[0].id;
@@ -243,7 +294,9 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
         }}
         onMouseLeave={(e) => {
           setIsHovered(false);
-          if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+          if (!isSelected) {
+            e.currentTarget.style.backgroundColor = shouldHighlight ? 'rgba(0, 102, 204, 0.04)' : 'transparent';
+          }
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: hasChildren ? '36px' : '16px' }}>
@@ -292,15 +345,45 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
             <span style={{ fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: node.type === 'notebook' ? 500 : 400, flex: 1 }}>
               {node.title}
             </span>
-            {(isHovered || isSelected || isPinned) && !isEditing && (
+            {isHovered && tooltipPos && (
+              <div style={{
+                position: 'fixed',
+                top: tooltipPos.top,
+                left: tooltipPos.left,
+                backgroundColor: 'rgba(0,0,0,0.85)',
+                color: 'white',
+                padding: '6px 10px',
+                borderRadius: '6px',
+                fontSize: '13px',
+                whiteSpace: 'nowrap',
+                zIndex: 99999,
+                pointerEvents: 'none',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+              }}>
+                {node.title}
+              </div>
+            )}
+            {(isHovered || isSelected || isPinned || isLocked) && !isEditing && (
               <div style={{ display: 'flex', gap: '4px', opacity: 0.7 }}>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); togglePin(node.id); }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px', color: isPinned ? '#0066cc' : 'inherit' }}
-                  title={isPinned ? "Bỏ ghim" : "Ghim"}
-                >
-                  {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-                </button>
+                {(isHovered || isSelected || isLocked) && (
+                  <button 
+                    id={`lock-icon-${node.id}`}
+                    onClick={(e) => { e.stopPropagation(); toggleLock(node.id); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px', color: isLocked ? '#ef4444' : 'inherit' }}
+                    title={isLocked ? "Mở khóa" : "Khóa"}
+                  >
+                    {isLocked ? <Lock size={14} /> : <Unlock size={14} />}
+                  </button>
+                )}
+                {(isHovered || isSelected || isPinned) && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); togglePin(node.id); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px', color: isPinned ? '#0066cc' : 'inherit' }}
+                    title={isPinned ? "Bỏ ghim" : "Ghim"}
+                  >
+                    {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                  </button>
+                )}
                 {(isHovered || isSelected) && (
                   <>
                     <button 
@@ -328,7 +411,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0 }) => {
       {isExpanded && hasChildren && (
         <div className="tree-children">
           {node.children!.map((child) => (
-            <TreeItem key={child.id} node={child} level={level + 1} />
+            <TreeItem key={child.id} node={child} level={level + 1} isHighlighted={shouldHighlight} />
           ))}
         </div>
       )}

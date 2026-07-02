@@ -1,14 +1,15 @@
 import React, { useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { useTreeStore } from '../../store/useTreeStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
-import { Edit2, Eye, Trash2, Copy, Scissors, Clipboard, MoveRight, CopyPlus, Image as ImageIcon, ArrowUp, ArrowDown, Mail, Plus, EyeOff, Eye as EyeIcon, BrainCircuit } from 'lucide-react';
+import { Edit2, Eye, Trash2, Copy, Scissors, Clipboard, MoveRight, CopyPlus, Image as ImageIcon, ArrowUp, ArrowDown, Mail, Plus, EyeOff, Eye as EyeIcon, BrainCircuit, ListOrdered, Files } from 'lucide-react';
 
 export const SidebarContextMenu = () => {
   const { 
     contextMenuNodeId, contextMenuPos, closeContextMenu, 
     openEmailModal, addNode, deleteNode, hideNode, unhideNode, hiddenIds,
     setSelected, setEditingNodeId, copyToClipboard, pasteFromClipboard, clipboard,
-    moveNodeUp, moveNodeDown, openDestinationModal, openIconPicker, data, openMindmapModal
+    moveNodeUp, moveNodeDown, openDestinationModal, openIconPicker, data, openMindmapModal, numberChildNotes, duplicateNode, selectedIds
   } = useTreeStore();
   
   const { addTabToPane, activePaneId, panes } = useWorkspaceStore();
@@ -30,7 +31,7 @@ export const SidebarContextMenu = () => {
   if (!contextMenuNodeId || !contextMenuPos) return null;
 
   const menuWidth = 220;
-  const menuHeight = 450; // estimated height
+  const menuHeight = 650; // updated estimated height because of newly added items
   
   let adjustedLeft = contextMenuPos.x;
   let adjustedTop = contextMenuPos.y;
@@ -49,19 +50,40 @@ export const SidebarContextMenu = () => {
   adjustedTop = Math.max(10, adjustedTop);
   adjustedLeft = Math.max(10, adjustedLeft);
 
+  const targetNode = (() => {
+    const findN = (nodes: any[], id: string): any => {
+      for (const n of nodes) {
+        if (n.id === id) return n;
+        if (n.children) {
+          const found = findN(n.children, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return findN(data, contextMenuNodeId);
+  })();
+
   const handleAction = (e: React.MouseEvent, action: string) => {
     e.stopPropagation();
+    if (!contextMenuNodeId) return;
+
+    const targetIds = selectedIds.has(contextMenuNodeId) 
+      ? Array.from(selectedIds) 
+      : [contextMenuNodeId];
     
-    if (action === 'email') openEmailModal(contextMenuNodeId);
-    if (action === 'delete') deleteNode(contextMenuNodeId);
-    if (action === 'hide') hideNode(contextMenuNodeId);
-    if (action === 'unhide') unhideNode(contextMenuNodeId);
+    if (action === 'email') openEmailModal(targetIds);
+    if (action === 'delete') targetIds.forEach(id => deleteNode(id));
+    if (action === 'hide') targetIds.forEach(id => hideNode(id));
+    if (action === 'unhide') targetIds.forEach(id => unhideNode(id));
+    
+    // Add operations only apply to single node
     if (action === 'add_note') addNode(contextMenuNodeId, 'note', 'Ghi chú mới');
     if (action === 'add_folder') addNode(contextMenuNodeId, 'notebook', 'Thư mục mới');
     
+    // View operation only applies to single node
     if (action === 'view') {
-      setSelected(contextMenuNodeId);
-      // find node to get title
+      setSelected(contextMenuNodeId, false);
       const findNode = (nodes: any[], id: string): any => {
         for (const n of nodes) {
           if (n.id === id) return n;
@@ -80,16 +102,19 @@ export const SidebarContextMenu = () => {
     }
     
     if (action === 'edit') setEditingNodeId(contextMenuNodeId);
-    if (action === 'copy') copyToClipboard(contextMenuNodeId, 'copy');
-    if (action === 'cut') copyToClipboard(contextMenuNodeId, 'cut');
-    if (action === 'paste') pasteFromClipboard(contextMenuNodeId);
+    if (action === 'copy') copyToClipboard(targetIds, 'copy');
+    if (action === 'cut') copyToClipboard(targetIds, 'cut');
+    if (action === 'paste') pasteFromClipboard(contextMenuNodeId); // Paste destination is the single clicked node
     
+    // Move up/down only on single node for predictable behavior
     if (action === 'move_up') moveNodeUp(contextMenuNodeId);
     if (action === 'move_down') moveNodeDown(contextMenuNodeId);
-    if (action === 'move_to') openDestinationModal(contextMenuNodeId, 'move');
-    if (action === 'copy_to') openDestinationModal(contextMenuNodeId, 'copy');
-    if (action === 'change_icon') openIconPicker(contextMenuNodeId);
+    
+    if (action === 'move_to') openDestinationModal(targetIds, 'move');
+    if (action === 'duplicate') targetIds.forEach(id => duplicateNode(id));
+    if (action === 'change_icon') openIconPicker(targetIds);
     if (action === 'ai_mindmap') openMindmapModal(contextMenuNodeId);
+    if (action === 'number_children') numberChildNotes(contextMenuNodeId);
     
     closeContextMenu();
   };
@@ -113,7 +138,7 @@ export const SidebarContextMenu = () => {
     </div>
   );
 
-  return (
+  return ReactDOM.createPortal(
     <div 
       ref={menuRef}
       style={{
@@ -138,6 +163,7 @@ export const SidebarContextMenu = () => {
       <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '4px 0' }} />
       <MenuItem icon={Eye} label="Xem" action="view" />
       <MenuItem icon={Edit2} label="Sửa (Đổi tên)" action="edit" />
+      <MenuItem icon={ListOrdered} label="Đánh số thứ tự các ghi chú" action="number_children" />
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
       {hiddenIds.has(contextMenuNodeId) ? (
         <MenuItem icon={EyeIcon} label="Hiện" action="unhide" />
@@ -150,7 +176,7 @@ export const SidebarContextMenu = () => {
       <MenuItem icon={Clipboard} label="Paste" action="paste" disabled={!clipboard} />
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
       <MenuItem icon={MoveRight} label="Di chuyển tới..." action="move_to" />
-      <MenuItem icon={CopyPlus} label="Sao chép tới..." action="copy_to" />
+      <MenuItem icon={Files} label="Nhân bản" action="duplicate" />
       <MenuItem icon={ImageIcon} label="Đổi Icon" action="change_icon" />
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
       <MenuItem icon={ArrowUp} label="Move Up" action="move_up" />
@@ -159,6 +185,7 @@ export const SidebarContextMenu = () => {
       <MenuItem icon={Mail} label="Gửi qua Email" action="email" />
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
       <MenuItem icon={Trash2} label="Xóa" action="delete" danger />
-    </div>
+    </div>,
+    document.body
   );
 };

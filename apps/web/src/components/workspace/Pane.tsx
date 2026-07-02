@@ -22,7 +22,7 @@ interface PaneProps {
 
 export const Pane: React.FC<PaneProps> = ({ pane, isThirdOfThree }) => {
   const { setActiveTab, removeTabFromPane, addTabToPane, removePane, addPane, setActivePane, activePaneId } = useWorkspaceStore();
-  const { data } = useTreeStore();
+  const { data, lockedIds } = useTreeStore();
 
   const handleAddTab = () => {
     const newId = Math.random().toString(36).substr(2, 9);
@@ -157,7 +157,13 @@ export const Pane: React.FC<PaneProps> = ({ pane, isThirdOfThree }) => {
       {/* Pane Content */}
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {pane.activeTabId ? (
-          <TiptapEditor key={pane.activeTabId} docId={pane.activeTabId} createdAt={activeNode?.createdAt} updatedAt={activeNode?.updatedAt} />
+          <TiptapEditor 
+            key={pane.activeTabId} 
+            docId={pane.activeTabId} 
+            createdAt={activeNode?.createdAt} 
+            updatedAt={activeNode?.updatedAt} 
+            isLocked={lockedIds.has(pane.activeTabId)}
+          />
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999' }}>
             No tab selected

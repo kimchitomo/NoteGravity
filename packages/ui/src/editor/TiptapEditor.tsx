@@ -44,9 +44,10 @@ export interface TiptapEditorProps {
   docId?: string;
   createdAt?: number;
   updatedAt?: number;
+  isLocked?: boolean;
 }
 
-export const TiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-doc-1', createdAt, updatedAt }) => {
+const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-doc-1', createdAt, updatedAt, isLocked }) => {
   const [headings, setHeadings] = useState<any[]>([]);
 
   // Chỉ khởi tạo 1 lần theo docId
@@ -69,6 +70,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity
   }, [provider, ydoc]);
 
   const editor = useEditor({
+    editable: !isLocked,
     extensions: [
       StarterKit.configure({
         // Tắt history mặc định vì Collaboration extension sẽ tự quản lý history
@@ -135,6 +137,12 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity
     }
   }, [editor, docId]);
 
+  useEffect(() => {
+    if (editor) {
+      editor.setEditable(!isLocked);
+    }
+  }, [editor, isLocked]);
+
   return (
     <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: 'var(--bg-color)' }}>
       {/* Editor Header / Metadata */}
@@ -154,6 +162,15 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity
         <div 
           className="editor-document" 
           style={{ flex: 1, overflowY: 'auto' }}
+          onClickCapture={(e) => {
+            if (isLocked) {
+              e.preventDefault();
+              e.stopPropagation();
+              alert("Ghi chú này đang bị khóa. Hãy mở khóa ở thanh bên trái để chỉnh sửa!");
+              document.getElementById(`lock-icon-${docId}`)?.focus();
+              return;
+            }
+          }}
           onClick={(e) => {
             if (e.target === e.currentTarget && editor) {
               editor.commands.focus('start');
@@ -176,4 +193,53 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity
       </div>
     </div>
   );
+};
+
+export const TiptapEditor: React.FC<TiptapEditorProps> = (props) => {
+  const [shouldLoad, setShouldLoad] = useState(false);
+
+  useEffect(() => {
+    setShouldLoad(false);
+    const timer = setTimeout(() => {
+      setShouldLoad(true);
+    }, 250); // Delay loading heavy Tiptap instance to prevent lag during rapid hover
+    return () => clearTimeout(timer);
+  }, [props.docId]);
+
+  if (!shouldLoad) {
+    const saved = localStorage.getItem(`note-content-${props.docId || 'notegravity-doc-1'}`);
+    return (
+      <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: 'var(--bg-color)' }}>
+        <div className="editor-header" style={{ padding: '8px 16px', fontSize: '12px', color: '#666', borderBottom: '1px solid #eaeaea', backgroundColor: '#f9f9f9' }}>
+          <div className="editor-date">
+            <span>🗓 Created: {props.createdAt ? new Date(props.createdAt).toLocaleString('vi-VN') : new Date().toLocaleDateString('vi-VN')}</span>
+            <span style={{ margin: '0 8px', color: '#ccc' }}>|</span>
+            <span>⏱ Updated: {props.updatedAt ? new Date(props.updatedAt).toLocaleString('vi-VN') : new Date().toLocaleTimeString('vi-VN')}</span>
+          </div>
+        </div>
+        <div className="editor-scroll-area" style={{ display: 'flex', flexDirection: 'row', flex: 1, overflow: 'hidden' }}>
+          <div 
+            className="editor-document tiptap ProseMirror" 
+            style={{ flex: 1, overflowY: 'auto' }}
+            onClickCapture={(e) => {
+              if (props.isLocked) {
+                e.preventDefault();
+                e.stopPropagation();
+                alert("Ghi chú này đang bị khóa. Hãy mở khóa ở thanh bên trái để chỉnh sửa!");
+                document.getElementById(`lock-icon-${props.docId}`)?.focus();
+              }
+            }}
+          >
+             {saved ? (
+               <div dangerouslySetInnerHTML={{ __html: saved }} />
+             ) : (
+               <div style={{ color: '#999', padding: '1rem', fontStyle: 'italic' }}>Đang tải...</div>
+             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <RealTiptapEditor {...props} />;
 };

@@ -31,10 +31,11 @@ const findParentNode = (nodes: any[], targetId: string, parent: any = null): any
   return null;
 };
 
-const ShortcutItem = ({ node, isPinned }: { node: any, isPinned?: boolean }) => {
-  const { selectedId, setSelected, setFocus, addRecentView, togglePin } = useTreeStore();
+const ShortcutItem: React.FC<{ node: any, isPinned?: boolean }> = ({ node, isPinned }) => {
+  const { togglePin, selectedIds, setSelected, data, expandedIds, toggleExpand, addRecentView, setFocus } = useTreeStore();
   const { addTabToPane, setPreviewTab, activePaneId, panes } = useWorkspaceStore();
   const [isHovered, setIsHovered] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState<{ top: number, left: number } | null>(null);
   
   if (!node) return null;
   
@@ -57,7 +58,7 @@ const ShortcutItem = ({ node, isPinned }: { node: any, isPinned?: boolean }) => 
     useTreeStore.setState({ expandedIds: newExpanded });
     
     setFocus(node.id);
-    setSelected(node.id);
+    setSelected(node.id, false);
     
     setTimeout(() => {
       const el = document.querySelector(`[data-node-id="${node.id}"]`);
@@ -69,11 +70,12 @@ const ShortcutItem = ({ node, isPinned }: { node: any, isPinned?: boolean }) => 
   
   return (
     <div 
-      onClick={() => {
+      onClick={(e) => {
         setFocus(node.id);
-        const wasAlreadySelected = selectedId === node.id;
-        setSelected(node.id);
-        if (node.type === 'note') {
+        const multi = e.ctrlKey || e.metaKey;
+        const wasAlreadySelected = selectedIds.has(node.id);
+        setSelected(node.id, multi);
+        if (node.type === 'note' && !multi) {
           const targetPaneId = activePaneId || panes[0].id;
           if (wasAlreadySelected) {
             addTabToPane(targetPaneId, { id: node.id, title: node.title });
@@ -92,18 +94,21 @@ const ShortcutItem = ({ node, isPinned }: { node: any, isPinned?: boolean }) => 
       }}
       style={{
         padding: '6px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-        borderRadius: '6px', color: 'var(--text-color)', fontSize: '13px', margin: '2px 0'
+        borderRadius: '6px', color: 'var(--text-color)', fontSize: '13px', margin: '2px 0',
+        backgroundColor: selectedIds.has(node.id) ? 'var(--hover-bg, #f0f0f0)' : 'transparent'
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--hover-bg, #f0f0f0)';
         setIsHovered(true);
+        const rect = e.currentTarget.getBoundingClientRect();
+        setTooltipPos({ top: rect.top, left: rect.right + 10 });
+        if (!selectedIds.has(node.id)) e.currentTarget.style.backgroundColor = 'var(--hover-bg, #fafafa)';
         if (node.type === 'note') {
           const targetPaneId = activePaneId || panes[0].id;
           setPreviewTab(targetPaneId, { id: node.id, title: node.title });
         }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = 'transparent';
+        if (!selectedIds.has(node.id)) e.currentTarget.style.backgroundColor = 'transparent';
         setIsHovered(false);
       }}
     >
@@ -113,6 +118,24 @@ const ShortcutItem = ({ node, isPinned }: { node: any, isPinned?: boolean }) => 
       <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, fontWeight: node.type === 'notebook' ? 500 : 400 }}>
         {node.title}
       </span>
+      {isHovered && tooltipPos && (
+        <div style={{
+          position: 'fixed',
+          top: tooltipPos.top,
+          left: tooltipPos.left,
+          backgroundColor: 'rgba(0,0,0,0.85)',
+          color: 'white',
+          padding: '6px 10px',
+          borderRadius: '6px',
+          fontSize: '13px',
+          whiteSpace: 'nowrap',
+          zIndex: 99999,
+          pointerEvents: 'none',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+        }}>
+          {node.title}
+        </div>
+      )}
       {isPinned && isHovered && (
         <div style={{ display: 'flex', gap: '4px', opacity: 0.7 }} onClick={(e) => e.stopPropagation()}>
           <button onClick={handleLocate} title="Đi tới vị trí" style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', color: 'inherit' }}>
@@ -128,7 +151,7 @@ const ShortcutItem = ({ node, isPinned }: { node: any, isPinned?: boolean }) => 
 };
 
 export const Sidebar = () => {
-  const { data, moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected, closeContextMenu, emailModalNodeId, destinationModalData, iconPickerNodeId, mindmapModalNodeId, addRootNode, pinnedIds, recentIds } = useTreeStore();
+  const { data, moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected, closeContextMenu, emailModalNodeIds, destinationModalData, iconPickerNodeIds, mindmapModalNodeId, addRootNode, pinnedIds, recentIds } = useTreeStore();
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   const [isPinnedExpanded, setIsPinnedExpanded] = useState(true);
@@ -149,6 +172,9 @@ export const Sidebar = () => {
   };
 
   useEffect(() => {
+    if (isRecentExpanded) {
+      resetRecentTimer();
+    }
     return () => {
       if (recentCollapseTimeoutRef.current) {
         clearTimeout(recentCollapseTimeoutRef.current);
@@ -191,7 +217,7 @@ export const Sidebar = () => {
         case ' ':
           e.preventDefault();
           if (focusedId) {
-            setSelected(focusedId);
+            setSelected(focusedId, false);
             const node = findNodeById(data, focusedId);
             if (node && node.type === 'note') {
               const workspaceState = useWorkspaceStore.getState();
@@ -252,9 +278,21 @@ export const Sidebar = () => {
         )}
 
         {recentNodes.length > 0 && (
-          <div style={{ marginBottom: '16px' }}>
+          <div 
+            style={{ marginBottom: '16px' }}
+            onMouseEnter={() => {
+              if (recentCollapseTimeoutRef.current) clearTimeout(recentCollapseTimeoutRef.current);
+            }}
+            onMouseLeave={() => {
+              if (isRecentExpanded) resetRecentTimer();
+            }}
+          >
             <div 
-              onClick={() => setIsRecentExpanded(!isRecentExpanded)}
+              onClick={() => {
+                const nextState = !isRecentExpanded;
+                setIsRecentExpanded(nextState);
+                if (nextState) resetRecentTimer();
+              }}
               style={{ fontSize: '12px', fontWeight: 600, color: '#888', marginBottom: '4px', paddingLeft: '4px', textTransform: 'uppercase', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
             >
               {isRecentExpanded ? <ChevronDown size={14} style={{ marginRight: '4px' }} /> : <ChevronRight size={14} style={{ marginRight: '4px' }} />}
@@ -278,9 +316,9 @@ export const Sidebar = () => {
       </div>
 
       <SidebarContextMenu />
-      {emailModalNodeId && <EmailModal />}
+      {emailModalNodeIds && <EmailModal />}
       {destinationModalData && <DestinationPickerModal />}
-      {iconPickerNodeId && <IconPickerModal />}
+      {iconPickerNodeIds && <IconPickerModal />}
       {mindmapModalNodeId && <AIMindmapModal />}
     </div>
   );

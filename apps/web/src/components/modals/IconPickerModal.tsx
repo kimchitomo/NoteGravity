@@ -12,12 +12,12 @@ const ICONS = [
 ];
 
 export const IconPickerModal = () => {
-  const { iconPickerNodeId, closeIconPicker, updateNodeIcon, contextMenuPos } = useTreeStore();
+  const { iconPickerNodeIds, closeIconPicker, updateNodeIcon, contextMenuPos } = useTreeStore();
 
-  if (!iconPickerNodeId) return null;
+  if (!iconPickerNodeIds) return null;
 
   const handleSelect = (icon: string) => {
-    updateNodeIcon(iconPickerNodeId, icon);
+    iconPickerNodeIds.forEach(id => updateNodeIcon(id, icon));
     closeIconPicker();
   };
 

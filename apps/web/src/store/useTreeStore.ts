@@ -44,33 +44,38 @@ interface TreeState {
   data: TreeNode[];
   expandedIds: Set<string>;
   focusedId: string | null;
-  selectedId: string | null;
+  selectedIds: Set<string>;
+  anchorId: string | null;
   contextMenuPos: { x: number; y: number } | null;
   contextMenuNodeId: string | null;
-  emailModalNodeId: string | null;
+  emailModalNodeIds: string[] | null;
   hiddenIds: Set<string>;
   pinnedIds: Set<string>;
   recentIds: string[];
 
   // New States
   editingNodeId: string | null;
-  clipboard: { id: string; action: 'copy' | 'cut'; node: TreeNode } | null;
-  destinationModalData: { id: string; action: 'move' | 'copy' } | null;
-  iconPickerNodeId: string | null;
+  clipboard: { ids: string[]; action: 'copy' | 'cut'; nodes: TreeNode[] } | null;
+  destinationModalData: { ids: string[]; action: 'move' | 'copy' } | null;
+  iconPickerNodeIds: string[] | null;
   mindmapModalNodeId: string | null;
+  highlightedBranchId: string | null;
+  lockedIds: Set<string>;
 
   toggleExpand: (id: string) => void;
   setFocus: (id: string) => void;
-  setSelected: (id: string) => void;
+  toggleLock: (id: string) => void;
+  selectRange: (id: string) => void;
+  setSelected: (id: string, multi?: boolean) => void;
   openContextMenu: (id: string, x: number, y: number) => void;
   closeContextMenu: () => void;
-  openEmailModal: (id: string) => void;
+  openEmailModal: (ids: string[]) => void;
   closeEmailModal: () => void;
 
   setEditingNodeId: (id: string | null) => void;
-  openDestinationModal: (id: string, action: 'move' | 'copy') => void;
+  openDestinationModal: (ids: string[], action: 'move' | 'copy') => void;
   closeDestinationModal: () => void;
-  openIconPicker: (id: string) => void;
+  openIconPicker: (ids: string[]) => void;
   closeIconPicker: () => void;
   openMindmapModal: (id: string) => void;
   closeMindmapModal: () => void;
@@ -86,14 +91,20 @@ interface TreeState {
   unhideNode: (id: string) => void;
   renameNode: (id: string, title: string) => void;
   updateNodeIcon: (id: string, icon: string) => void;
-  copyToClipboard: (id: string, action: 'copy' | 'cut') => void;
+  numberChildNotes: (id: string) => void;
+  copyToClipboard: (ids: string[], action: 'copy' | 'cut') => void;
   pasteFromClipboard: (parentId: string) => void;
   moveNodeUp: (id: string) => void;
   moveNodeDown: (id: string) => void;
   moveNodeTo: (id: string, destParentId: string) => void;
   moveNodeBefore: (sourceId: string, targetId: string) => void;
   moveNodeAfter: (sourceId: string, targetId: string) => void;
+  moveNodesTo: (ids: string[], destParentId: string) => void;
+  moveNodesBefore: (sourceIds: string[], targetId: string) => void;
+  moveNodesAfter: (sourceIds: string[], targetId: string) => void;
   copyNodeTo: (id: string, destParentId: string) => void;
+  copyNodesTo: (ids: string[], destParentId: string) => void;
+  duplicateNode: (id: string) => void;
 
   // Keyboard navigation
   moveFocusDown: () => void;
@@ -141,41 +152,87 @@ export const useTreeStore = create<TreeState>()(
       data: mockData,
   expandedIds: new Set<string>(),
   focusedId: null,
-  selectedId: null,
+  selectedIds: new Set<string>(),
+  anchorId: null,
   contextMenuPos: null,
   contextMenuNodeId: null,
-  emailModalNodeId: null,
+  emailModalNodeIds: null,
   hiddenIds: new Set<string>(),
   pinnedIds: new Set<string>(),
+  lockedIds: new Set<string>(),
   recentIds: [],
 
   editingNodeId: null,
   clipboard: null,
   destinationModalData: null,
-  iconPickerNodeId: null,
+  iconPickerNodeIds: null,
   mindmapModalNodeId: null,
+  highlightedBranchId: null,
 
   toggleExpand: (id) => set((state) => {
     const newExpanded = new Set(state.expandedIds);
-    if (newExpanded.has(id)) newExpanded.delete(id);
-    else newExpanded.add(id);
-    return { expandedIds: newExpanded };
+    let newHighlightedBranchId = state.highlightedBranchId;
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+      if (newHighlightedBranchId === id) newHighlightedBranchId = null;
+    } else {
+      newExpanded.add(id);
+      newHighlightedBranchId = id;
+    }
+    return { expandedIds: newExpanded, highlightedBranchId: newHighlightedBranchId };
   }),
 
   setFocus: (id) => set({ focusedId: id }),
-  setSelected: (id) => set({ selectedId: id }),
+  setSelected: (id, multi) => set((state) => {
+    if (multi) {
+      const newSelected = new Set(state.selectedIds);
+      if (newSelected.has(id)) newSelected.delete(id);
+      else newSelected.add(id);
+      return { selectedIds: newSelected, anchorId: id };
+    }
+    return { selectedIds: new Set([id]), anchorId: id };
+  }),
+  
+  toggleLock: (id) => set((state) => {
+    const newLocked = new Set(state.lockedIds);
+    if (newLocked.has(id)) newLocked.delete(id);
+    else newLocked.add(id);
+    return { lockedIds: newLocked };
+  }),
+
+  selectRange: (id) => set((state) => {
+    if (!state.anchorId) return { selectedIds: new Set([id]), anchorId: id };
+    
+    const visibleNodes = getVisibleNodes(state.data, state.expandedIds);
+    const startIndex = visibleNodes.findIndex(n => n.id === state.anchorId);
+    const endIndex = visibleNodes.findIndex(n => n.id === id);
+    
+    if (startIndex === -1 || endIndex === -1) {
+      return { selectedIds: new Set([id]), anchorId: id };
+    }
+    
+    const min = Math.min(startIndex, endIndex);
+    const max = Math.max(startIndex, endIndex);
+    
+    const newSelected = new Set(state.selectedIds);
+    for (let i = min; i <= max; i++) {
+      newSelected.add(visibleNodes[i].id);
+    }
+    
+    return { selectedIds: newSelected };
+  }),
   
   openContextMenu: (id, x, y) => set({ contextMenuNodeId: id, contextMenuPos: { x, y } }),
   closeContextMenu: () => set({ contextMenuNodeId: null, contextMenuPos: null }),
   
-  openEmailModal: (id) => set({ emailModalNodeId: id }),
-  closeEmailModal: () => set({ emailModalNodeId: null }),
+  openEmailModal: (ids) => set({ emailModalNodeIds: ids, contextMenuNodeId: null }),
+  closeEmailModal: () => set({ emailModalNodeIds: null }),
 
   setEditingNodeId: (id) => set({ editingNodeId: id }),
-  openDestinationModal: (id, action) => set({ destinationModalData: { id, action } }),
+  openDestinationModal: (ids, action) => set({ destinationModalData: { ids, action }, contextMenuNodeId: null }),
   closeDestinationModal: () => set({ destinationModalData: null }),
-  openIconPicker: (id) => set({ iconPickerNodeId: id }),
-  closeIconPicker: () => set({ iconPickerNodeId: null }),
+  openIconPicker: (ids) => set({ iconPickerNodeIds: ids, contextMenuNodeId: null }),
+  closeIconPicker: () => set({ iconPickerNodeIds: null }),
   openMindmapModal: (id) => set({ mindmapModalNodeId: id }),
   closeMindmapModal: () => set({ mindmapModalNodeId: null }),
 
@@ -195,18 +252,26 @@ export const useTreeStore = create<TreeState>()(
     const now = Date.now();
     const actualTitle = title || titleOrType;
     const actualType = title ? titleOrType : 'notebook';
-    const newNode: TreeNode = { id: `${now}`, title: actualTitle, type: actualType as any, children: actualType === 'notebook' ? [] : undefined, createdAt: now, updatedAt: now };
-    return { data: [...state.data, newNode] };
+    const newId = `${now}`;
+    const newNode: TreeNode = { id: newId, title: actualTitle, type: actualType as any, children: actualType === 'notebook' ? [] : undefined, createdAt: now, updatedAt: now };
+    return { 
+      data: [...state.data, newNode],
+      focusedId: newId,
+      editingNodeId: newId,
+      selectedIds: new Set([newId]),
+      anchorId: newId
+    };
   }),
 
   addNode: (parentId, type, title) => set((state) => {
     const now = Date.now();
+    const newId = `${now}`;
     const addRecursive = (nodes: TreeNode[]): TreeNode[] => {
       return nodes.map(node => {
         if (node.id === parentId) {
           return {
             ...node,
-            children: [...(node.children || []), { id: `${now}`, title, type, customIcon: node.customIcon, children: type === 'notebook' ? [] : undefined, createdAt: now, updatedAt: now }]
+            children: [...(node.children || []), { id: newId, title, type, customIcon: node.customIcon, children: type === 'notebook' ? [] : undefined, createdAt: now, updatedAt: now }]
           };
         }
         if (node.children) {
@@ -215,7 +280,14 @@ export const useTreeStore = create<TreeState>()(
         return node;
       });
     };
-    return { data: addRecursive(state.data), expandedIds: new Set(state.expandedIds).add(parentId) };
+    return { 
+      data: addRecursive(state.data), 
+      expandedIds: new Set(state.expandedIds).add(parentId),
+      focusedId: newId,
+      editingNodeId: newId,
+      selectedIds: new Set([newId]),
+      anchorId: newId
+    };
   }),
 
   deleteNode: (id) => set((state) => {
@@ -248,6 +320,25 @@ export const useTreeStore = create<TreeState>()(
     return { data: mapNodes(state.data) };
   }),
 
+  numberChildNotes: (id) => set((state) => {
+    const now = Date.now();
+    const mapNodes = (nodes: TreeNode[]): TreeNode[] => nodes.map(n => {
+      if (n.id === id && n.children) {
+        let noteCounter = 1;
+        const newChildren = n.children.map(child => {
+          if (child.type === 'note') {
+            const cleanTitle = child.title.replace(/^\d+[\.\-]\s*/, '');
+            return { ...child, title: `${noteCounter++}. ${cleanTitle}`, updatedAt: now };
+          }
+          return child;
+        });
+        return { ...n, children: newChildren, updatedAt: now };
+      }
+      return { ...n, children: n.children ? mapNodes(n.children) : undefined };
+    });
+    return { data: mapNodes(state.data) };
+  }),
+
   updateNodeIcon: (id, icon) => set((state) => {
     const applyIconRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.map(n => ({
       ...n,
@@ -268,28 +359,42 @@ export const useTreeStore = create<TreeState>()(
     return { data: mapNodes(state.data) };
   }),
 
-  copyToClipboard: (id, action) => set((state) => {
-    const node = findNode(state.data, id);
-    if (!node) return state;
-    // deep clone node logic here can be simple JSON parse/stringify
-    const cloned = JSON.parse(JSON.stringify(node));
-    return { clipboard: { id, action, node: cloned } };
+  copyToClipboard: (ids, action) => set((state) => {
+    const nodes = ids.map(id => findNode(state.data, id)).filter(Boolean) as TreeNode[];
+    if (nodes.length === 0) return state;
+    const clonedNodes = JSON.parse(JSON.stringify(nodes));
+    return { clipboard: { ids, action, nodes: clonedNodes } };
   }),
 
   pasteFromClipboard: (parentId) => set((state) => {
     if (!state.clipboard) return state;
-    const { id, action, node } = state.clipboard;
+    const { ids, action, nodes } = state.clipboard;
     let newData = state.data;
     
     if (action === 'cut') {
-      const deleteRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.filter(n => n.id !== id).map(n => ({ ...n, children: n.children ? deleteRecursive(n.children) : undefined }));
+      const idsSet = new Set(ids);
+      const deleteRecursive = (treeNodes: TreeNode[]): TreeNode[] => treeNodes.filter(n => !idsSet.has(n.id)).map(n => ({ ...n, children: n.children ? deleteRecursive(n.children) : undefined }));
       newData = deleteRecursive(newData);
     }
     
-    const newNode = { ...node, id: `${Date.now()}` };
-    const addRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.map(n => {
-      if (n.id === parentId && n.type === 'notebook') {
-        return { ...n, children: [...(n.children || []), newNode] };
+    const cloneRecursive = (node: TreeNode): TreeNode => {
+      const newId = `${node.type}-${Math.random().toString(36).substr(2, 9)}`;
+      if (node.type === 'note') {
+        const savedContent = localStorage.getItem(`note-content-${node.id}`);
+        if (savedContent) localStorage.setItem(`note-content-${newId}`, savedContent);
+      }
+      return {
+        ...node,
+        id: newId,
+        children: node.children ? node.children.map(cloneRecursive) : undefined,
+      };
+    };
+
+    const newNodes = nodes.map(cloneRecursive);
+    
+    const addRecursive = (treeNodes: TreeNode[]): TreeNode[] => treeNodes.map(n => {
+      if (n.id === parentId) {
+        return { ...n, children: [...(n.children || []), ...newNodes] };
       }
       return { ...n, children: n.children ? addRecursive(n.children) : undefined };
     });
@@ -328,8 +433,10 @@ export const useTreeStore = create<TreeState>()(
   }),
 
   moveNodeTo: (id, destParentId) => set((state) => {
+    if (id === destParentId) return state;
     const nodeToMove = findNode(state.data, id);
     if (!nodeToMove) return state;
+    if (findNode(nodeToMove.children || [], destParentId)) return state; // Prevent moving to descendant
     
     // delete from original
     const deleteRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.filter(n => n.id !== id).map(n => ({ ...n, children: n.children ? deleteRecursive(n.children) : undefined }));
@@ -337,7 +444,7 @@ export const useTreeStore = create<TreeState>()(
     
     // add to new
     const addRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.map(n => {
-      if (n.id === destParentId && n.type === 'notebook') {
+      if (n.id === destParentId) {
         return { ...n, children: [...(n.children || []), nodeToMove] };
       }
       return { ...n, children: n.children ? addRecursive(n.children) : undefined };
@@ -346,10 +453,35 @@ export const useTreeStore = create<TreeState>()(
     return { data: addRecursive(newData), expandedIds: new Set(state.expandedIds).add(destParentId) };
   }),
 
+  moveNodesTo: (ids, destParentId) => set((state) => {
+    const isInvalid = ids.some(id => {
+      const n = findNode(state.data, id);
+      return n && (n.id === destParentId || findNode(n.children || [], destParentId));
+    });
+    if (isInvalid) return state;
+
+    const nodesToMove = ids.map(id => findNode(state.data, id)).filter(Boolean) as TreeNode[];
+    if (nodesToMove.length === 0) return state;
+
+    const idsSet = new Set(ids);
+    const deleteRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.filter(n => !idsSet.has(n.id)).map(n => ({ ...n, children: n.children ? deleteRecursive(n.children) : undefined }));
+    let newData = deleteRecursive(state.data);
+
+    const addRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.map(n => {
+      if (n.id === destParentId) {
+        return { ...n, children: [...(n.children || []), ...nodesToMove] };
+      }
+      return { ...n, children: n.children ? addRecursive(n.children) : undefined };
+    });
+
+    return { data: addRecursive(newData), expandedIds: new Set(state.expandedIds).add(destParentId) };
+  }),
+
   moveNodeBefore: (sourceId, targetId) => set((state) => {
     if (sourceId === targetId) return state;
     const nodeToMove = findNode(state.data, sourceId);
     if (!nodeToMove) return state;
+    if (findNode(nodeToMove.children || [], targetId)) return state;
 
     const deleteRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.filter(n => n.id !== sourceId).map(n => ({ ...n, children: n.children ? deleteRecursive(n.children) : undefined }));
     let newData = deleteRecursive(state.data);
@@ -359,6 +491,36 @@ export const useTreeStore = create<TreeState>()(
       for (const n of nodes) {
         if (n.id === targetId) {
           result.push(nodeToMove);
+          result.push(n);
+        } else {
+          result.push({ ...n, children: n.children ? insertRecursive(n.children) : undefined });
+        }
+      }
+      return result;
+    };
+    return { data: insertRecursive(newData) };
+  }),
+
+  moveNodesBefore: (sourceIds, targetId) => set((state) => {
+    const isInvalid = sourceIds.some(id => {
+      const n = findNode(state.data, id);
+      return n && (n.id === targetId || findNode(n.children || [], targetId));
+    });
+    if (isInvalid) return state;
+
+    const idsSet = new Set(sourceIds);
+    if (idsSet.has(targetId)) return state;
+    const nodesToMove = sourceIds.map(id => findNode(state.data, id)).filter(Boolean) as TreeNode[];
+    if (nodesToMove.length === 0) return state;
+
+    const deleteRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.filter(n => !idsSet.has(n.id)).map(n => ({ ...n, children: n.children ? deleteRecursive(n.children) : undefined }));
+    let newData = deleteRecursive(state.data);
+
+    const insertRecursive = (nodes: TreeNode[]): TreeNode[] => {
+      let result: TreeNode[] = [];
+      for (const n of nodes) {
+        if (n.id === targetId) {
+          result.push(...nodesToMove);
           result.push(n);
         } else {
           result.push({ ...n, children: n.children ? insertRecursive(n.children) : undefined });
@@ -373,6 +535,7 @@ export const useTreeStore = create<TreeState>()(
     if (sourceId === targetId) return state;
     const nodeToMove = findNode(state.data, sourceId);
     if (!nodeToMove) return state;
+    if (findNode(nodeToMove.children || [], targetId)) return state;
 
     const deleteRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.filter(n => n.id !== sourceId).map(n => ({ ...n, children: n.children ? deleteRecursive(n.children) : undefined }));
     let newData = deleteRecursive(state.data);
@@ -392,20 +555,134 @@ export const useTreeStore = create<TreeState>()(
     return { data: insertRecursive(newData) };
   }),
 
+  moveNodesAfter: (sourceIds, targetId) => set((state) => {
+    const isInvalid = sourceIds.some(id => {
+      const n = findNode(state.data, id);
+      return n && (n.id === targetId || findNode(n.children || [], targetId));
+    });
+    if (isInvalid) return state;
+
+    const idsSet = new Set(sourceIds);
+    if (idsSet.has(targetId)) return state;
+    const nodesToMove = sourceIds.map(id => findNode(state.data, id)).filter(Boolean) as TreeNode[];
+    if (nodesToMove.length === 0) return state;
+
+    const deleteRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.filter(n => !idsSet.has(n.id)).map(n => ({ ...n, children: n.children ? deleteRecursive(n.children) : undefined }));
+    let newData = deleteRecursive(state.data);
+
+    const insertRecursive = (nodes: TreeNode[]): TreeNode[] => {
+      let result: TreeNode[] = [];
+      for (const n of nodes) {
+        if (n.id === targetId) {
+          result.push(n);
+          result.push(...nodesToMove);
+        } else {
+          result.push({ ...n, children: n.children ? insertRecursive(n.children) : undefined });
+        }
+      }
+      return result;
+    };
+    return { data: insertRecursive(newData) };
+  }),
+
+  duplicateNode: (id) => set((state) => {
+    const nodeToDuplicate = findNode(state.data, id);
+    if (!nodeToDuplicate) return state;
+
+    const cloneRecursive = (node: TreeNode): TreeNode => {
+      const newId = `${node.type}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Copy content from localStorage if it exists
+      if (node.type === 'note') {
+        const savedContent = localStorage.getItem(`note-content-${node.id}`);
+        if (savedContent) {
+          localStorage.setItem(`note-content-${newId}`, savedContent);
+        }
+      }
+
+      return {
+        ...node,
+        id: newId,
+        title: `${node.title} (Bản sao)`,
+        children: node.children ? node.children.map(cloneRecursive) : undefined,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+    };
+
+    const clonedNode = cloneRecursive(nodeToDuplicate);
+
+    const insertAfterRecursive = (nodes: TreeNode[]): TreeNode[] => {
+      let result: TreeNode[] = [];
+      for (const n of nodes) {
+        if (n.id === id) {
+          result.push({ ...n, children: n.children ? insertAfterRecursive(n.children) : undefined });
+          result.push(clonedNode);
+        } else {
+          result.push({ ...n, children: n.children ? insertAfterRecursive(n.children) : undefined });
+        }
+      }
+      return result;
+    };
+
+    return { data: insertAfterRecursive(state.data) };
+  }),
+
   copyNodeTo: (id, destParentId) => set((state) => {
     const nodeToCopy = findNode(state.data, id);
     if (!nodeToCopy) return state;
     
-    const clonedNode = JSON.parse(JSON.stringify(nodeToCopy));
-    clonedNode.id = `${Date.now()}`;
+    const cloneRecursive = (node: TreeNode): TreeNode => {
+      const newId = `${node.type}-${Math.random().toString(36).substr(2, 9)}`;
+      if (node.type === 'note') {
+        const savedContent = localStorage.getItem(`note-content-${node.id}`);
+        if (savedContent) localStorage.setItem(`note-content-${newId}`, savedContent);
+      }
+      return {
+        ...node,
+        id: newId,
+        children: node.children ? node.children.map(cloneRecursive) : undefined,
+      };
+    };
+
+    const clonedNode = cloneRecursive(nodeToCopy);
     
     const addRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.map(n => {
-      if (n.id === destParentId && n.type === 'notebook') {
+      if (n.id === destParentId) {
         return { ...n, children: [...(n.children || []), clonedNode] };
       }
       return { ...n, children: n.children ? addRecursive(n.children) : undefined };
     });
     
+    return { data: addRecursive(state.data), expandedIds: new Set(state.expandedIds).add(destParentId) };
+  }),
+
+  copyNodesTo: (ids, destParentId) => set((state) => {
+    const nodesToCopy = ids.map(id => findNode(state.data, id)).filter(Boolean) as TreeNode[];
+    if (nodesToCopy.length === 0) return state;
+
+    const cloneRecursive = (node: TreeNode): TreeNode => {
+      const newId = `${node.type}-${Math.random().toString(36).substr(2, 9)}`;
+      if (node.type === 'note') {
+        const savedContent = localStorage.getItem(`note-content-${node.id}`);
+        if (savedContent) localStorage.setItem(`note-content-${newId}`, savedContent);
+      }
+      return {
+        ...node,
+        id: newId,
+        children: node.children ? node.children.map(cloneRecursive) : undefined,
+      };
+    };
+
+    const clonedNodes = nodesToCopy.map(cloneRecursive);
+
+    const addRecursive = (nodes: TreeNode[]): TreeNode[] => nodes.map(n => {
+      if (n.id === destParentId) {
+        return { ...n, children: [...(n.children || []), ...clonedNodes] };
+      }
+      return { ...n, children: n.children ? addRecursive(n.children) : undefined };
+    });
+
     return { data: addRecursive(state.data), expandedIds: new Set(state.expandedIds).add(destParentId) };
   }),
 
@@ -473,6 +750,7 @@ export const useTreeStore = create<TreeState>()(
         expandedIds: Array.from(state.expandedIds),
         hiddenIds: Array.from(state.hiddenIds),
         pinnedIds: Array.from(state.pinnedIds),
+        lockedIds: Array.from(state.lockedIds),
         recentIds: state.recentIds,
       }),
       merge: (persistedState: any, currentState) => {
@@ -483,6 +761,7 @@ export const useTreeStore = create<TreeState>()(
           expandedIds: new Set(persistedState.expandedIds || []),
           hiddenIds: new Set(persistedState.hiddenIds || []),
           pinnedIds: new Set(persistedState.pinnedIds || []),
+          lockedIds: new Set(persistedState.lockedIds || []),
         };
       },
     }

@@ -3,7 +3,7 @@ import { useTreeStore, TreeNode } from '../../store/useTreeStore';
 import { X } from 'lucide-react';
 
 export const DestinationPickerModal = () => {
-  const { destinationModalData, closeDestinationModal, moveNodeTo, copyNodeTo, data, expandedIds } = useTreeStore();
+  const { destinationModalData, closeDestinationModal, moveNodesTo, copyNodesTo, data, expandedIds } = useTreeStore();
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null);
   
   const [localExpandedIds, setLocalExpandedIds] = useState<Set<string>>(new Set(expandedIds));
@@ -13,22 +13,39 @@ export const DestinationPickerModal = () => {
 
   if (!destinationModalData) return null;
 
+  const findNode = (nodes: TreeNode[], id: string): TreeNode | null => {
+    for (const n of nodes) {
+      if (n.id === id) return n;
+      if (n.children) {
+        const found = findNode(n.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const isMovingOnlyNotes = destinationModalData.ids.every(id => {
+    const n = findNode(data, id);
+    return n && n.type === 'note';
+  });
+
   const handleConfirm = () => {
     if (!selectedParentId) return;
     if (isCopy) {
-      copyNodeTo(destinationModalData.id, selectedParentId);
+      copyNodesTo(destinationModalData.ids, selectedParentId);
     } else {
-      moveNodeTo(destinationModalData.id, selectedParentId);
+      moveNodesTo(destinationModalData.ids, selectedParentId);
     }
     closeDestinationModal();
   };
 
   const renderFolder = (node: TreeNode, level = 0) => {
     // Cannot move a node into itself
-    if (node.id === destinationModalData.id) return null;
+    if (destinationModalData.ids.includes(node.id)) return null;
 
     const isSelected = selectedParentId === node.id;
     const isNote = node.type === 'note';
+    const canSelect = isMovingOnlyNotes || !isNote;
     const hasChildren = node.children && node.children.length > 0;
     const isExpanded = localExpandedIds.has(node.id);
 
@@ -45,13 +62,13 @@ export const DestinationPickerModal = () => {
     return (
       <div key={node.id} style={{ marginLeft: level * 16 }}>
         <div 
-          onClick={() => { if (!isNote) setSelectedParentId(node.id) }}
-          title={isNote ? "Không thể chọn ghi chú làm đích đến" : ""}
+          onClick={() => { if (canSelect) setSelectedParentId(node.id) }}
+          title={!canSelect ? "Không thể chọn ghi chú làm đích đến" : ""}
           style={{
-            padding: '4px 8px', cursor: isNote ? 'default' : 'pointer', borderRadius: '4px',
+            padding: '4px 8px', cursor: !canSelect ? 'default' : 'pointer', borderRadius: '4px',
             backgroundColor: isSelected ? 'var(--hover-bg, #e0f2fe)' : 'transparent',
             display: 'flex', alignItems: 'center', gap: '8px',
-            opacity: isNote ? 0.6 : 1,
+            opacity: !canSelect ? 0.6 : 1,
             color: 'var(--text-color)'
           }}
         >

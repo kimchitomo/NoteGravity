@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Delete, Check } from 'lucide-react';
+import { Mic, MicOff, Delete, Check, Trash2 } from 'lucide-react';
 import { useTreeStore, asrWorker, initAsrWorker, terminateAsrWorker } from '../../store/useTreeStore';
 
 export interface SpeechRecognitionModalProps {
@@ -21,6 +21,30 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
   const textBeforeRef = useRef<string>('');
   const textAfterRef = useRef<string>('');
   const inputValueRef = useRef<string>(initialText);
+  const interimTranscriptRef = useRef<string>('');
+  const ignoredResultIndices = useRef<Set<number>>(new Set());
+  const currentResultIndex = useRef<number>(-1);
+
+  const handleTextOrCursorChange = (newText?: string) => {
+      const currentText = newText !== undefined ? newText : (textareaRef.current ? textareaRef.current.value : inputValueRef.current);
+      const start = textareaRef.current?.selectionStart ?? currentText.length;
+      const end = textareaRef.current?.selectionEnd ?? currentText.length;
+      
+      if (newText !== undefined) {
+         setInputValue(newText);
+         inputValueRef.current = newText;
+      }
+      
+      if (interimTranscriptRef.current) {
+         if (isListening && isOnline && recognitionRef.current) {
+             ignoredResultIndices.current.add(currentResultIndex.current);
+             interimTranscriptRef.current = '';
+         }
+      }
+      
+      textBeforeRef.current = currentText.substring(0, start);
+      textAfterRef.current = currentText.substring(end);
+  };
   
   // Sync ref with state
   useEffect(() => { inputValueRef.current = inputValue; }, [inputValue]);
@@ -33,10 +57,8 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     
-    // Auto start listening on mount
-    setTimeout(() => {
-      startListening();
-    }, 300);
+    // Auto start listening on mount immediately to preserve user gesture token
+    startListening();
 
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -48,12 +70,10 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
   const stopListening = () => {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
-      recognitionRef.current = null;
       setIsListening(false);
       setIsTranscribing(true);
     } else if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
       setIsListening(false);
       setIsTranscribing(true);
     }
@@ -70,11 +90,15 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
       recognition.interimResults = true;
       recognition.lang = 'vi-VN';
       
+      ignoredResultIndices.current.clear();
+      currentResultIndex.current = -1;
+      
       const currentText = textareaRef.current ? textareaRef.current.value : inputValueRef.current;
       if (textareaRef.current) {
         const start = textareaRef.current.selectionStart !== null ? textareaRef.current.selectionStart : currentText.length;
+        const end = textareaRef.current.selectionEnd !== null ? textareaRef.current.selectionEnd : currentText.length;
         textBeforeRef.current = currentText.substring(0, start);
-        textAfterRef.current = currentText.substring(start);
+        textAfterRef.current = currentText.substring(end);
       } else {
         textBeforeRef.current = currentText;
         textAfterRef.current = '';
@@ -84,7 +108,11 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
         let finalTranscript = '';
         let interimTranscript = '';
         
+        currentResultIndex.current = event.results.length - 1;
+        
         for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (ignoredResultIndices.current.has(i)) continue;
+          
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript;
           } else {
@@ -96,6 +124,9 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
           textBeforeRef.current = (textBeforeRef.current ? textBeforeRef.current + ' ' : '') + finalTranscript.trim();
           setIsTranscribing(false);
         }
+        
+        interimTranscriptRef.current = interimTranscript;
+        
         let prefix = textBeforeRef.current.trim();
         let middle = interimTranscript.trim();
         let suffix = textAfterRef.current.trim();
@@ -233,20 +264,44 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
            textareaRef.current.focus();
            textareaRef.current.selectionStart = newTextBefore.length;
            textareaRef.current.selectionEnd = newTextBefore.length;
+           handleTextOrCursorChange();
         }
     }, 0);
-    
-    // Restart recognition to clear stale interim results using abort()
-    if (isListening && isOnline && recognitionRef.current) {
-       recognitionRef.current.abort();
-       setTimeout(() => {
-          startListening();
-       }, 50);
-    }
+  };
+
+  const clearAll = () => {
+    handleTextOrCursorChange('');
+    setTimeout(() => {
+        if (textareaRef.current) {
+           textareaRef.current.focus();
+        }
+    }, 0);
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }} onMouseDown={(e) => { e.stopPropagation(); onClose(); }}>
+    <div 
+      style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }} 
+      onMouseDown={(e) => { e.stopPropagation(); onClose(); }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          onApply(inputValue.trim());
+        }
+        if (e.key === 'F3') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!e.repeat) {
+            toggleListening();
+          }
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
       <div style={{ backgroundColor: 'white', borderRadius: '16px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', padding: '24px', width: '600px', maxWidth: '90vw', display: 'flex', flexDirection: 'column', gap: '20px', border: '1px solid #e5e7eb' }} onMouseDown={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e5e7eb', paddingBottom: '12px' }}>
           <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#1f2937', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
@@ -263,28 +318,14 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
             ref={textareaRef}
             value={inputValue}
             onChange={(e) => {
-              setInputValue(e.target.value);
-              inputValueRef.current = e.target.value;
-              
-              if (isListening && isOnline && recognitionRef.current) {
-                 recognitionRef.current.abort();
-                 setTimeout(() => {
-                    startListening();
-                 }, 50);
-              }
+              handleTextOrCursorChange(e.target.value);
             }}
             onClick={() => {
-              if (isListening && isOnline && recognitionRef.current) {
-                 recognitionRef.current.abort();
-                 setTimeout(() => startListening(), 50);
-              }
+              handleTextOrCursorChange();
             }}
             onKeyUp={(e) => {
               if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-                if (isListening && isOnline && recognitionRef.current) {
-                   recognitionRef.current.abort();
-                   setTimeout(() => startListening(), 50);
-                }
+                handleTextOrCursorChange();
               }
             }}
             style={{ flex: 1, backgroundColor: 'transparent', resize: 'none', outline: 'none', fontSize: '18px', color: '#1f2937', width: '100%', border: 'none' }}
@@ -293,6 +334,13 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
           />
           
           <div style={{ position: 'absolute', bottom: '16px', right: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button 
+              onClick={clearAll}
+              title="Xóa tất cả"
+              style={{ padding: '10px', backgroundColor: '#fee2e2', border: '1px solid #fca5a5', color: '#ef4444', borderRadius: '50%', cursor: 'pointer', display: 'flex', boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}
+            >
+              <Trash2 size={20} />
+            </button>
             <button 
               onClick={deleteLastWord}
               title="Xóa từ cuối"

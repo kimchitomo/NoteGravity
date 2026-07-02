@@ -188,6 +188,14 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
       <div 
         className={`tree-node ${node.type}`} 
         data-node-id={node.id}
+        onKeyDown={(e) => {
+           if (e.key === 'F3' && !isLocked && !isEditing) {
+              e.preventDefault();
+              setIsSpeechModalOpen(true);
+              // Defer global state update to avoid blocking modal render
+              setTimeout(() => setEditingNodeId(node.id), 0);
+           }
+        }}
         onClick={handleClick}
         onDoubleClick={() => { 
           if (isLocked) {
@@ -271,6 +279,19 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => {
+                if (e.key === 'F3') {
+                  e.preventDefault();
+                  let currentInput = inputValue;
+                  if (inputRef.current) {
+                      const start = inputRef.current.selectionStart || 0;
+                      const end = inputRef.current.selectionEnd || 0;
+                      if (end > start) {
+                          currentInput = currentInput.substring(0, start) + (start > 0 ? ' ' : '') + currentInput.substring(end);
+                          setInputValue(currentInput.trim());
+                      }
+                  }
+                  setIsSpeechModalOpen(true);
+                }
                 if (e.key === 'Enter') handleRenameSubmit();
                 if (e.key === 'Escape') { setInputValue(node.title); setEditingNodeId(null); }
               }}

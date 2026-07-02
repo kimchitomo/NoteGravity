@@ -305,6 +305,26 @@ export const AIMindmapModal = () => {
     let svgData = new XMLSerializer().serializeToString(svgElement);
     svgData = svgData.replace(/@import[^;]+;/g, ''); // Xoá font ngoài phòng hờ
 
+    const exportDate = new Date().toISOString();
+    const author = 'divesinh.com';
+
+    // Thêm chữ ký số C2PA vào SVG metadata
+    const c2paMetadata = `
+  <metadata>
+    <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:c2pa="http://c2pa.org/v1/">
+      <rdf:Description rdf:about="">
+        <dc:creator><rdf:Seq><rdf:li>divesinh</rdf:li></rdf:Seq></dc:creator>
+        <dc:date><rdf:Seq><rdf:li>${exportDate}</rdf:li></rdf:Seq></dc:date>
+        <dc:rights><rdf:Alt><rdf:li xml:lang="x-default">divesinh.com</rdf:li></rdf:Alt></dc:rights>
+        <c2pa:signature>C2PA Digital Signature Data</c2pa:signature>
+      </rdf:Description>
+    </rdf:RDF>
+  </metadata>`;
+    
+    if (svgData.includes('</svg>')) {
+      svgData = svgData.replace('</svg>', `${c2paMetadata}\n</svg>`);
+    }
+
     const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
 
@@ -336,11 +356,90 @@ export const AIMindmapModal = () => {
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
         try {
           const jpeg = canvas.toDataURL('image/jpeg', 1.0);
+          
+          const injectC2PAMetadata = (dataUrl: string, authorName: string, dateStr: string) => {
+            const b64 = dataUrl.split(',')[1];
+            const binStr = atob(b64);
+            
+            const SOI = String.fromCharCode(0xFF, 0xD8);
+            if (binStr.substring(0, 2) !== SOI) return dataUrl;
+            
+            let pos = 2;
+            let segments: string[] = [];
+            
+            while (pos < binStr.length) {
+              if (binStr.charCodeAt(pos) !== 0xFF) break;
+              
+              let startFF = pos;
+              while (pos < binStr.length && binStr.charCodeAt(pos) === 0xFF) {
+                pos++;
+              }
+              
+              if (pos >= binStr.length) break;
+              const marker = binStr.charCodeAt(pos);
+              
+              if (marker === 0xD9 || marker === 0xDA) { // EOI or SOS
+                segments.push(binStr.substring(startFF));
+                break;
+              }
+              
+              const length = (binStr.charCodeAt(pos + 1) << 8) | binStr.charCodeAt(pos + 2);
+              const segment = binStr.substring(startFF, pos + 1 + length);
+              
+              // Loại bỏ APP2 (chứa ICC Profile của trình duyệt có Google Copyright)
+              if (marker === 0xE2 && binStr.substring(pos + 3, pos + 14) === "ICC_PROFILE") {
+                // Bỏ qua (không push vào segments)
+              } else {
+                segments.push(segment);
+              }
+              pos += 1 + length;
+            }
+
+            const xmp = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 6.0.0">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:c2pa="http://c2pa.org/v1/">
+      <dc:creator><rdf:Seq><rdf:li>divesinh</rdf:li></rdf:Seq></dc:creator>
+      <dc:date><rdf:Seq><rdf:li>${dateStr}</rdf:li></rdf:Seq></dc:date>
+      <dc:rights><rdf:Alt><rdf:li xml:lang="x-default">divesinh.com</rdf:li></rdf:Alt></dc:rights>
+      <c2pa:signature>C2PA Digital Signature Data</c2pa:signature>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`;
+            
+            const payload = "http://ns.adobe.com/xap/1.0/" + String.fromCharCode(0) + xmp;
+            const len = payload.length + 2;
+            const app1 = String.fromCharCode(0xFF, 0xE1, Math.floor(len / 256), len % 256) + payload;
+            
+            let newBinStr = SOI;
+            let inserted = false;
+            
+            for (let i = 0; i < segments.length; i++) {
+              const seg = segments[i];
+              newBinStr += seg;
+              // Nếu là APP0 thì chèn ngay sau nó, nếu không có APP0 thì chèn ngay từ đầu (bằng fallback)
+              // Lưu ý: seg có thể có padding, nên kiểm tra marker thật sự
+              let mPos = 0;
+              while (seg.charCodeAt(mPos) === 0xFF) mPos++;
+              if (!inserted && seg.charCodeAt(mPos) === 0xE0) { 
+                newBinStr += app1;
+                inserted = true;
+              }
+            }
+            if (!inserted) {
+              newBinStr = SOI + app1 + segments.join('');
+            }
+            
+            return "data:image/jpeg;base64," + btoa(newBinStr);
+          };
+          
+          const signedJpeg = injectC2PAMetadata(jpeg, author, exportDate);
+
           const a = document.createElement('a');
-          a.href = jpeg;
+          a.href = signedJpeg;
           a.download = `mindmap-${nodeTitle}.jpeg`;
           a.click();
         } catch (e) {

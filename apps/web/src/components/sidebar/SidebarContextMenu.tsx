@@ -2,14 +2,14 @@ import React, { useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useTreeStore } from '../../store/useTreeStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
-import { Edit2, Eye, Trash2, Copy, Scissors, Clipboard, MoveRight, CopyPlus, Image as ImageIcon, ArrowUp, ArrowDown, Mail, Plus, EyeOff, Eye as EyeIcon, BrainCircuit, ListOrdered, Files } from 'lucide-react';
+import { Edit2, Eye, Trash2, Copy, Scissors, Clipboard, MoveRight, CopyPlus, Image as ImageIcon, ArrowUp, ArrowDown, Mail, Plus, EyeOff, Eye as EyeIcon, BrainCircuit, ListOrdered, Files, Clock } from 'lucide-react';
 
 export const SidebarContextMenu = () => {
   const { 
     contextMenuNodeId, contextMenuPos, closeContextMenu, 
     openEmailModal, addNode, deleteNode, hideNode, unhideNode, hiddenIds,
     setSelected, setEditingNodeId, copyToClipboard, pasteFromClipboard, clipboard,
-    moveNodeUp, moveNodeDown, openDestinationModal, openIconPicker, data, openMindmapModal, numberChildNotes, duplicateNode, selectedIds
+    moveNodeUp, moveNodeDown, openDestinationModal, openIconPicker, data, openMindmapModal, numberChildNotes, duplicateNode, selectedIds, openSchedulePinModal
   } = useTreeStore();
   
   const { addTabToPane, activePaneId, panes } = useWorkspaceStore();
@@ -113,6 +113,7 @@ export const SidebarContextMenu = () => {
     if (action === 'move_to') openDestinationModal(targetIds, 'move');
     if (action === 'duplicate') targetIds.forEach(id => duplicateNode(id));
     if (action === 'change_icon') openIconPicker(targetIds);
+    if (action === 'schedule_pin') openSchedulePinModal(targetIds);
     if (action === 'ai_mindmap') openMindmapModal(contextMenuNodeId);
     if (action === 'number_children') numberChildNotes(contextMenuNodeId);
     
@@ -178,6 +179,8 @@ export const SidebarContextMenu = () => {
       <MenuItem icon={MoveRight} label="Di chuyển tới..." action="move_to" />
       <MenuItem icon={Files} label="Nhân bản" action="duplicate" />
       <MenuItem icon={ImageIcon} label="Đổi Icon" action="change_icon" />
+      <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
+      <MenuItem icon={Clock} label="Lên lịch ghim tuần tự..." action="schedule_pin" />
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
       <MenuItem icon={ArrowUp} label="Move Up" action="move_up" />
       <MenuItem icon={ArrowDown} label="Move Down" action="move_down" />

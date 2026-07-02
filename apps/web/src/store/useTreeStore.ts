@@ -40,6 +40,15 @@ const mockData: TreeNode[] = [
   }
 ];
 
+export interface PinScheduleItem {
+  id: string;
+  startTime: number;
+  endTime: number;
+  announcedStart?: boolean;
+  announcedEnd?: boolean;
+  announcedUnpin?: boolean;
+}
+
 interface TreeState {
   data: TreeNode[];
   expandedIds: Set<string>;
@@ -59,8 +68,14 @@ interface TreeState {
   destinationModalData: { ids: string[]; action: 'move' | 'copy' } | null;
   iconPickerNodeIds: string[] | null;
   mindmapModalNodeId: string | null;
+  schedulePinModalNodeIds: string[] | null;
   highlightedBranchId: string | null;
   lockedIds: Set<string>;
+
+  pinSchedule: {
+    items: PinScheduleItem[];
+    isActive: boolean;
+  } | null;
 
   toggleExpand: (id: string) => void;
   setFocus: (id: string) => void;
@@ -82,6 +97,12 @@ interface TreeState {
 
   togglePin: (id: string) => void;
   addRecentView: (id: string) => void;
+
+  openSchedulePinModal: (ids: string[]) => void;
+  closeSchedulePinModal: () => void;
+  startPinSchedule: (items: PinScheduleItem[]) => void;
+  stopPinSchedule: () => void;
+  checkPinSchedule: () => void;
 
   // Mutations
   addRootNode: (titleOrType: string, title?: string) => void;
@@ -124,6 +145,57 @@ const getVisibleNodes = (nodes: TreeNode[], expandedIds: Set<string>): TreeNode[
   return visible;
 };
 
+let ttsWorker: Worker | null = null;
+let audioContext: AudioContext | null = null;
+
+const playAudio = (audioData: Float32Array, sampleRate: number) => {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const audioBuffer = audioContext.createBuffer(1, audioData.length, sampleRate);
+    audioBuffer.copyToChannel(audioData as any, 0);
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioContext.destination);
+    source.start();
+};
+
+const initTTSWorker = () => {
+  if (typeof window === 'undefined') return;
+  if (!ttsWorker) {
+    ttsWorker = new Worker(new URL('../workers/tts.worker.ts', import.meta.url), { type: 'module' });
+    ttsWorker.onmessage = (e) => {
+        const { status, audio, sampling_rate, error } = e.data;
+        if (status === 'complete' && audio) {
+            playAudio(audio, sampling_rate);
+        } else if (status === 'error') {
+            console.error('TTS Worker Error:', error);
+        }
+    };
+    ttsWorker.postMessage({ type: 'INIT' });
+  }
+};
+
+const announce = (message: string) => {
+  if (typeof window !== 'undefined') {
+    if (ttsWorker) {
+        ttsWorker.postMessage({ type: 'GENERATE', text: message, id: Date.now().toString() });
+    }
+    
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') {
+        new Notification('NoteGravity', { body: message });
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            new Notification('NoteGravity', { body: message });
+          }
+        });
+      }
+    }
+  }
+};
+
 const findNode = (nodes: TreeNode[], id: string): TreeNode | null => {
   for (const node of nodes) {
     if (node.id === id) return node;
@@ -146,6 +218,26 @@ const getParentNode = (nodes: TreeNode[], targetId: string, parent: TreeNode | n
   return null;
 }
 
+const getFullNodePath = (nodes: TreeNode[], targetId: string): string => {
+  let current: TreeNode | null = findNode(nodes, targetId);
+  if (!current) return 'ghi chú';
+  
+  const path = [current.title];
+  let parentId = targetId;
+  
+  while (true) {
+    const parent = getParentNode(nodes, parentId);
+    if (parent) {
+      path.unshift(parent.title);
+      parentId = parent.id;
+    } else {
+      break;
+    }
+  }
+  
+  return path.join(', ');
+};
+
 export const useTreeStore = create<TreeState>()(
   persist(
     (set, get) => ({
@@ -167,7 +259,9 @@ export const useTreeStore = create<TreeState>()(
   destinationModalData: null,
   iconPickerNodeIds: null,
   mindmapModalNodeId: null,
+  schedulePinModalNodeIds: null,
   highlightedBranchId: null,
+  pinSchedule: null,
 
   toggleExpand: (id) => set((state) => {
     const newExpanded = new Set(state.expandedIds);
@@ -233,6 +327,105 @@ export const useTreeStore = create<TreeState>()(
   closeDestinationModal: () => set({ destinationModalData: null }),
   openIconPicker: (ids) => set({ iconPickerNodeIds: ids, contextMenuNodeId: null }),
   closeIconPicker: () => set({ iconPickerNodeIds: null }),
+  openSchedulePinModal: (ids) => set({ schedulePinModalNodeIds: ids, contextMenuNodeId: null }),
+  closeSchedulePinModal: () => set({ schedulePinModalNodeIds: null }),
+  
+  startPinSchedule: (items) => set((state) => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        Notification.requestPermission();
+    }
+    initTTSWorker();
+    return {
+      pinSchedule: { items, isActive: true },
+      schedulePinModalNodeIds: null
+    };
+  }),
+
+  stopPinSchedule: () => set((state) => {
+    if (!state.pinSchedule) return state;
+    const newPinned = new Set(state.pinnedIds);
+    state.pinSchedule.items.forEach(item => newPinned.delete(item.id));
+    return { pinSchedule: null, pinnedIds: newPinned };
+  }),
+
+  checkPinSchedule: () => set((state) => {
+    if (!state.pinSchedule || !state.pinSchedule.isActive) return state;
+    
+    const now = Date.now();
+    let allFinished = true;
+    let changed = false;
+    let itemsChanged = false;
+    const newItems = [...state.pinSchedule.items];
+    
+    newItems.forEach((item, index) => {
+        const itemCopy = { ...item };
+        let modified = false;
+        
+        if (now >= itemCopy.startTime && now <= itemCopy.endTime) {
+            if (!state.pinnedIds.has(itemCopy.id)) changed = true;
+            allFinished = false;
+            
+            if (!itemCopy.announcedStart) {
+                const name = getFullNodePath(state.data, itemCopy.id);
+                announce(`Bắt đầu ghim ${name}`);
+                itemCopy.announcedStart = true;
+                modified = true;
+            }
+            
+            if (now >= itemCopy.endTime - 10000 && !itemCopy.announcedEnd) {
+                const name = getFullNodePath(state.data, itemCopy.id);
+                announce(`Chuẩn bị kết thúc ghim ${name}`);
+                itemCopy.announcedEnd = true;
+                modified = true;
+            }
+        } else {
+            if (state.pinnedIds.has(itemCopy.id)) changed = true;
+            if (now < itemCopy.endTime) {
+                allFinished = false;
+            } else {
+                // now > itemCopy.endTime
+                if (!itemCopy.announcedUnpin) {
+                    const name = getFullNodePath(state.data, itemCopy.id);
+                    announce(`Đã bỏ ghim ${name}`);
+                    itemCopy.announcedUnpin = true;
+                    modified = true;
+                }
+            }
+        }
+        
+        if (modified) {
+            newItems[index] = itemCopy;
+            itemsChanged = true;
+        }
+    });
+    
+    if (allFinished) {
+        const newPinned = new Set(state.pinnedIds);
+        state.pinSchedule.items.forEach(item => newPinned.delete(item.id));
+        return {
+            pinnedIds: newPinned,
+            pinSchedule: null
+        };
+    }
+    
+    if (changed || itemsChanged) {
+        const newPinned = new Set(state.pinnedIds);
+        newItems.forEach(item => {
+            if (now >= item.startTime && now <= item.endTime) {
+                newPinned.add(item.id);
+            } else {
+                newPinned.delete(item.id);
+            }
+        });
+        return { 
+            pinnedIds: newPinned,
+            pinSchedule: { ...state.pinSchedule, items: newItems }
+        };
+    }
+    
+    return state;
+  }),
+
   openMindmapModal: (id) => set({ mindmapModalNodeId: id }),
   closeMindmapModal: () => set({ mindmapModalNodeId: null }),
 

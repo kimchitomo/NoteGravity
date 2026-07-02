@@ -7,7 +7,8 @@ import { EmailModal } from './modals/EmailModal';
 import { DestinationPickerModal } from './modals/DestinationPickerModal';
 import { IconPickerModal } from './modals/IconPickerModal';
 import { AIMindmapModal } from './modals/AIMindmapModal';
-import { Plus, ChevronDown, ChevronRight, PinOff, Locate } from 'lucide-react';
+import { SchedulePinModal } from './modals/SchedulePinModal';
+import { Plus, ChevronDown, ChevronRight, PinOff, Locate, Clock, X } from 'lucide-react';
 
 const findNodeById = (nodes: any[], id: string): any => {
   for (const n of nodes) {
@@ -151,7 +152,7 @@ const ShortcutItem: React.FC<{ node: any, isPinned?: boolean }> = ({ node, isPin
 };
 
 export const Sidebar = () => {
-  const { data, moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected, closeContextMenu, emailModalNodeIds, destinationModalData, iconPickerNodeIds, mindmapModalNodeId, addRootNode, pinnedIds, recentIds } = useTreeStore();
+  const { data, moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected, closeContextMenu, emailModalNodeIds, destinationModalData, iconPickerNodeIds, mindmapModalNodeId, schedulePinModalNodeIds, addRootNode, pinnedIds, recentIds, pinSchedule, checkPinSchedule, stopPinSchedule } = useTreeStore();
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   const [isPinnedExpanded, setIsPinnedExpanded] = useState(true);
@@ -245,6 +246,20 @@ export const Sidebar = () => {
     }
   }, [focusedId, data]);
 
+  useEffect(() => {
+    let timerId: NodeJS.Timeout | null = null;
+    if (pinSchedule && pinSchedule.isActive) {
+      // Check immediately and then every 10 seconds
+      checkPinSchedule();
+      timerId = setInterval(() => {
+        checkPinSchedule();
+      }, 1000); // Check every 1 second for exact timing
+    }
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [pinSchedule, checkPinSchedule]);
+
   return (
     <div 
       ref={sidebarRef}
@@ -264,6 +279,26 @@ export const Sidebar = () => {
       </div>
       
       <div style={{ padding: '10px', overflowY: 'auto', flex: 1 }}>
+        {pinSchedule && pinSchedule.isActive && (
+          <div style={{ margin: '8px 8px 16px', padding: '8px', backgroundColor: 'rgba(0, 102, 204, 0.1)', borderRadius: '6px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid rgba(0, 102, 204, 0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#0066cc' }}>
+              <Clock size={14} className="spin-slow" />
+              <span>Đang theo dõi lịch ghim chi tiết...</span>
+            </div>
+            <button 
+              onClick={stopPinSchedule}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', padding: '2px' }}
+              title="Dừng luân phiên"
+            >
+              <X size={14} />
+            </button>
+            <style>{`
+              @keyframes spinSlow { 100% { transform: rotate(360deg); } }
+              .spin-slow { animation: spinSlow 3s linear infinite; }
+            `}</style>
+          </div>
+        )}
+
         {pinnedNodes.length > 0 && (
           <div style={{ marginBottom: '16px' }}>
             <div 
@@ -320,6 +355,7 @@ export const Sidebar = () => {
       {destinationModalData && <DestinationPickerModal />}
       {iconPickerNodeIds && <IconPickerModal />}
       {mindmapModalNodeId && <AIMindmapModal />}
+      {schedulePinModalNodeIds && <SchedulePinModal />}
     </div>
   );
 };

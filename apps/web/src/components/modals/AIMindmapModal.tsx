@@ -459,11 +459,12 @@ export const AIMindmapModal = () => {
   };
 
   const handleDownload = () => {
+    const exts: Record<string, string> = { markdown: 'md', plantuml: 'puml', markmap: 'html' };
     const blob = new Blob([results[format as Exclude<Format, 'image'>]], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `mindmap-${nodeTitle}.${exts[format as Exclude<Format, 'image'>]}`;
+    a.download = `mindmap-${nodeTitle}.${exts[format] || 'txt'}`;
     a.click();
     URL.revokeObjectURL(url);
   };

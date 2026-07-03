@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { TreeItem } from './TreeItem';
 import { useTreeStore } from '../store/useTreeStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { SidebarContextMenu } from './sidebar/SidebarContextMenu';
 import { EmailModal } from './modals/EmailModal';
 import { DestinationPickerModal } from './modals/DestinationPickerModal';
@@ -145,6 +146,8 @@ const ShortcutItem: React.FC<{ node: any, isPinned?: boolean }> = ({ node, isPin
 
 export const Sidebar = () => {
   const { data, moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected, closeContextMenu, emailModalNodeIds, destinationModalData, iconPickerNodeIds, mindmapModalNodeId, schedulePinModalNodeIds, addRootNode, pinnedIds, recentIds, pinSchedule, checkPinSchedule, stopPinSchedule } = useTreeStore();
+  const { isSidebarOpen, setSidebarOpen } = useWorkspaceStore();
+  const isMobile = useIsMobile();
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   const [isPinnedExpanded, setIsPinnedExpanded] = useState(true);
@@ -251,22 +254,60 @@ export const Sidebar = () => {
   }, [pinSchedule, checkPinSchedule]);
 
   return (
-    <div 
-      ref={sidebarRef}
-      tabIndex={-1}
-      style={{ width: '260px', backgroundColor: 'var(--sidebar-bg)', borderRight: '1px solid #eaeaea', display: 'flex', flexDirection: 'column', outline: 'none' }}
-      onClick={closeContextMenu} // Close menu when clicking outside
-    >
-      <div style={{ padding: '16px', fontWeight: 600, borderBottom: '1px solid #eaeaea', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>NoteGravity Workspace</span>
-        <button 
-          onClick={() => addRootNode('notebook', 'Sổ tay mới')}
-          title="Thêm Sổ tay"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', color: 'var(--text-color)', opacity: 0.7 }}
-        >
-          <Plus size={16} />
-        </button>
-      </div>
+    <>
+      {isMobile && isSidebarOpen && (
+        <div 
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            top: '40px',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 40
+          }}
+        />
+      )}
+      <div 
+        ref={sidebarRef}
+        tabIndex={-1}
+        style={{ 
+          width: isMobile ? '80%' : '260px', 
+          maxWidth: '300px',
+          backgroundColor: 'var(--sidebar-bg)', 
+          borderRight: '1px solid #eaeaea', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          outline: 'none',
+          position: isMobile ? 'fixed' : 'relative',
+          top: isMobile ? '40px' : 0,
+          bottom: 0,
+          left: isMobile ? (isSidebarOpen ? 0 : '-100%') : 0,
+          zIndex: 50,
+          transition: 'left 0.3s ease-in-out',
+          height: isMobile ? 'calc(100vh - 40px)' : '100%',
+          boxShadow: isMobile && isSidebarOpen ? '2px 0 8px rgba(0,0,0,0.1)' : 'none'
+        }}
+        onClick={closeContextMenu} // Close menu when clicking outside
+      >
+        <div style={{ padding: '16px', fontWeight: 600, borderBottom: '1px solid #eaeaea', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>NoteGravity Workspace</span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button 
+              onClick={() => addRootNode('notebook', 'Sổ tay mới')}
+              title="Thêm Sổ tay"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', color: 'var(--text-color)', opacity: 0.7 }}
+            >
+              <Plus size={16} />
+            </button>
+            {isMobile && (
+              <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-color)' }}>
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
       
       <div style={{ padding: '10px', overflowY: 'auto', flex: 1 }}>
         {pinSchedule && pinSchedule.isActive && (
@@ -346,6 +387,7 @@ export const Sidebar = () => {
       {iconPickerNodeIds && <IconPickerModal />}
       {mindmapModalNodeId && <AIMindmapModal />}
       {schedulePinModalNodeIds && <SchedulePinModal />}
-    </div>
+      </div>
+    </>
   );
 };

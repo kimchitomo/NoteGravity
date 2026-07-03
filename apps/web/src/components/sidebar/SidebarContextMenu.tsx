@@ -12,7 +12,7 @@ export const SidebarContextMenu = () => {
     moveNodeUp, moveNodeDown, openDestinationModal, openIconPicker, data, openMindmapModal, numberChildNotes, duplicateNode, selectedIds, openSchedulePinModal
   } = useTreeStore();
   
-  const { addTabToPane, activePaneId, panes } = useWorkspaceStore();
+  const { setActiveNoteId } = useWorkspaceStore();
   
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -96,8 +96,7 @@ export const SidebarContextMenu = () => {
       };
       const n = findNode(data, contextMenuNodeId);
       if (n && n.type === 'note') {
-        const targetPaneId = activePaneId || panes[0].id;
-        addTabToPane(targetPaneId, { id: n.id, title: n.title });
+        setActiveNoteId(n.id);
       }
     }
     

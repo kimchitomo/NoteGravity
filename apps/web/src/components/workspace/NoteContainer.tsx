@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useCanvasStore } from '../../store/useCanvasStore';
+import { useEditorStore } from '../../store/useEditorStore';
 import { TiptapEditor } from '@notegravity/ui';
+import { useTreeStore, findNodeById } from '../../store/useTreeStore';
 
 interface NoteContainerProps {
   docId: string;
@@ -11,6 +13,18 @@ export const NoteContainer: React.FC<NoteContainerProps> = ({ docId, containerId
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const setActiveEditor = useEditorStore(state => state.setActiveEditor);
+  const addActionLog = useTreeStore(state => state.addActionLog);
+  const treeData = useTreeStore(state => state.data);
+  const debounceRef = useRef<any>(null);
+
+  const handleContentChange = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const node = findNodeById(treeData, docId);
+      addActionLog('Edited note', node ? node.title : 'Unknown Note', docId);
+    }, 2000);
+  };
   
   const pageData = useCanvasStore(state => state.getPageData(docId));
   const containerData = pageData.containers.find(c => c.id === containerId);
@@ -84,7 +98,9 @@ export const NoteContainer: React.FC<NoteContainerProps> = ({ docId, containerId
     };
   }, [isDragging, isResizing, docId, containerId, updateContainer]);
 
+  const [isHovered, setIsHovered] = useState(false);
   const isFocused = containerData.isFocused;
+  const isAutoWidth = containerData.isAutoWidth !== false; // Default to true if undefined
 
   return (
     <div 
@@ -93,54 +109,163 @@ export const NoteContainer: React.FC<NoteContainerProps> = ({ docId, containerId
         position: 'absolute',
         left: containerData.x,
         top: containerData.y,
-        width: containerData.width,
-        backgroundColor: 'transparent', // Looks like native canvas text
-        border: isFocused ? '1px solid #d1d5db' : '1px solid transparent',
-        borderRadius: '4px',
-        boxShadow: (isDragging || isFocused) ? '0 4px 6px -1px rgba(0, 0, 0, 0.1)' : 'none',
+        minWidth: '50px',
+        maxWidth: containerData.isAutoWidth === false ? containerData.width : 'calc(100vw - 100px)',
+        backgroundColor: 'transparent',
+        border: (isFocused || isHovered) ? '1px solid #e5e7eb' : '1px solid transparent',
+        borderRadius: '2px',
         zIndex: isFocused ? 10 : 1,
-        transition: isDragging || isResizing ? 'none' : 'box-shadow 0.2s',
+        transition: 'border 0.2s',
+        display: 'inline-block',
       }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
         if (!isFocused) updateContainer(docId, containerId, { isFocused: true });
       }}
     >
-      {/* Drag Handle Top Bar */}
+      {/* Top Bar with Grab Handle and Lock Button */}
       <div 
         style={{
-          height: '16px',
-          backgroundColor: isFocused ? '#f3f4f6' : 'transparent',
-          cursor: isDragging ? 'grabbing' : 'grab',
-          borderTopLeftRadius: '4px',
-          borderTopRightRadius: '4px',
+          position: 'absolute',
+          top: '-20px',
+          left: '0',
+          right: '0',
+          height: '20px',
+          backgroundColor: '#f9fafb',
+          borderTopLeftRadius: '2px',
+          borderTopRightRadius: '2px',
           display: 'flex',
-          justifyContent: 'center',
+          justifyContent: 'space-between',
           alignItems: 'center',
-          opacity: isFocused ? 1 : 0,
+          opacity: (isHovered || isDragging) ? 1 : 0,
+          transition: 'opacity 0.2s',
+          borderBottom: '1px solid #e5e7eb',
+          borderLeft: '1px solid #e5e7eb',
+          borderRight: '1px solid #e5e7eb',
+          borderTop: '1px solid #e5e7eb',
         }}
-        onMouseDown={handleDragStart}
       >
-        <div style={{ width: '20px', height: '4px', backgroundColor: '#d1d5db', borderRadius: '2px' }} />
+        {/* Placeholder for left spacing */}
+        <div style={{ width: '24px' }}></div>
+        
+        {/* Center Drag Handle */}
+        <div 
+          style={{
+            flex: 1,
+            height: '100%',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center'
+          }}
+          onMouseDown={handleDragStart}
+          title="Nắm để di chuyển"
+        >
+           <div style={{ width: '32px', height: '4px', backgroundColor: '#d1d5db', borderRadius: '2px' }} />
+        </div>
+
+        {/* Right Delete Button */}
+        <button
+          style={{
+            width: '24px',
+            height: '100%',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            color: '#ef4444',
+            padding: 0
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (window.confirm('Bạn có chắc muốn xóa khối văn bản này?')) {
+              removeContainer(docId, containerId);
+            }
+          }}
+          title="Xóa khối"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
       </div>
 
-      {/* Tiptap Editor Content */}
-      <div style={{ padding: '4px 8px', minHeight: '50px' }}>
-        <TiptapEditor docId={`${docId}-${containerId}`} />
+      <div className="canvas-tiptap-container" style={{ padding: '0', margin: 0, height: 'auto', display: 'inline-block' }}>
+        <style>{`
+          .canvas-tiptap-container > div,
+          .canvas-tiptap-container .editor-container,
+          .canvas-tiptap-container .editor-scroll-area,
+          .canvas-tiptap-container .editor-document,
+          .canvas-tiptap-container .ProseMirror {
+            display: inline-block !important;
+            position: static !important;
+            height: auto !important;
+            min-height: unset !important;
+            max-height: none !important;
+            width: auto !important;
+            min-width: unset !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            flex: none !important;
+            overflow: visible !important;
+            border: none !important;
+          }
+          .canvas-tiptap-container .ProseMirror {
+            padding: 2px 4px !important; /* Minimum padding for cursor */
+            outline: none !important;
+            min-width: 10px !important;
+          }
+          .canvas-tiptap-container .ProseMirror p {
+            margin: 0 !important;
+            padding: 0 !important;
+            line-height: 1.4 !important;
+            display: inline-block !important;
+          }
+          .canvas-tiptap-container .ProseMirror p:not(:last-child) {
+            margin-bottom: 2px !important;
+            display: block !important;
+          }
+          .canvas-tiptap-container .mini-toolbar {
+            /* Protect toolbar from aggressive overrides */
+            display: flex !important;
+            position: absolute !important;
+          }
+        `}</style>
+        <TiptapEditor 
+          docId={`${docId}-${containerId}`} 
+          isLocked={false}
+          onFocus={setActiveEditor}
+          onContentChange={handleContentChange}
+          autoWidth={true}
+        />
       </div>
 
       {/* Resize Handle Right */}
       <div 
         style={{
           position: 'absolute',
-          top: '16px',
+          top: '0',
           bottom: '0',
           right: '-4px',
           width: '8px',
           cursor: 'ew-resize',
-          display: isFocused ? 'block' : 'none',
+          display: (isFocused || isHovered) ? 'block' : 'none',
         }}
-        onMouseDown={handleResizeStart}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          setIsResizing(true);
+          startResizePos.current = {
+            x: e.clientX,
+            initialWidth: isAutoWidth ? (containerRef.current?.offsetWidth || containerData.width) : containerData.width
+          };
+          updateContainer(docId, containerId, { isFocused: true, isAutoWidth: false });
+        }}
       />
     </div>
   );

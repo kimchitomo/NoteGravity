@@ -4,15 +4,25 @@
 
 [36mvite v4.5.14 [32mbuilding for production...[36m[39m
 transforming...
-[32m✓[39m 1083 modules transformed.
-rendering chunks...
-computing gzip size...
-[2mdist/[22m[32mindex.html                 [39m[1m[2m    0.39 kB[22m[1m[22m[2m │ gzip:   0.27 kB[22m
-[33m
-(!) Some chunks are larger than 500 kBs after minification. Consider:
-- Using dynamic import() to code-split the application
-- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
-- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
-[2mdist/[22m[35massets/index-4d3be691.css  [39m[1m[2m   68.70 kB[22m[1m[22m[2m │ gzip:  13.29 kB[22m
-[2mdist/[22m[36massets/index-cb321afb.js   [39m[1m[33m1,667.03 kB[39m[22m[2m │ gzip: 509.61 kB[22m
-[32m✓ built in 13.00s[39m
+[32m✓[39m 4996 modules transformed.
+[32m✓ built in 27.11s[39m
+[31m"FontFamily" is not exported by "../../node_modules/.pnpm/@tiptap+extension-text-style@2.27.2_@tiptap+core@2.27.2/node_modules/@tiptap/extension-text-style/dist/index.js", imported by "../../node_modules/.pnpm/@tiptap+extension-font-family@3.27.1_@tiptap+extension-text-style@2.27.2/node_modules/@tiptap/extension-font-family/dist/index.js".[39m
+file: [36mC:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/@tiptap+extension-font-family@3.27.1_@tiptap+extension-text-style@2.27.2/node_modules/@tiptap/extension-font-family/dist/index.js:2:9[39m
+[33m1: // src/index.ts
+2: import { FontFamily } from "@tiptap/extension-text-style";
+            ^
+3: import { FontFamily as FontFamily2 } from "@tiptap/extension-text-style";
+4: var index_default = FontFamily;[39m
+[31merror during build:
+RollupError: "FontFamily" is not exported by "../../node_modules/.pnpm/@tiptap+extension-text-style@2.27.2_@tiptap+core@2.27.2/node_modules/@tiptap/extension-text-style/dist/index.js", imported by "../../node_modules/.pnpm/@tiptap+extension-font-family@3.27.1_@tiptap+extension-text-style@2.27.2/node_modules/@tiptap/extension-font-family/dist/index.js".
+    at error (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:2287:30)
+    at Module.error (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:13751:16)
+    at Module.traceVariable (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:14181:29)
+    at ModuleScope.findVariable (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:12621:39)
+    at Identifier.bind (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:8325:40)
+    at VariableDeclarator.bind (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:5898:23)
+    at VariableDeclaration.bind (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:5894:28)
+    at Program.bind (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:5894:28)
+    at Module.bindReferences (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:13747:18)
+    at Graph.sortModules (file:///C:/Users/Admin/Desktop/NoteAntiGravity/node_modules/.pnpm/rollup@3.30.0/node_modules/rollup/dist/es/shared/node-entry.js:25882:20)[39m
+ ELIFECYCLE  Command failed with exit code 1.

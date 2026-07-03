@@ -4,6 +4,7 @@ import { useTreeStore } from '../../store/useTreeStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { NoteContainer } from './NoteContainer';
 import { PageTitleBlock } from './PageTitleBlock';
+import { CanvasDrawLayer } from './CanvasDrawLayer';
 
 export const EditorView = () => {
   const { activeNoteId } = useWorkspaceStore();
@@ -53,7 +54,10 @@ export const EditorView = () => {
 
   // Middle click panning
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+    // If we are in 'pan' tool, left click also pans
+    const isPanClick = e.button === 1 || (e.button === 0 && e.altKey) || (canvasStore.drawTool === 'pan' && e.button === 0);
+    
+    if (isPanClick) {
       e.preventDefault();
       setIsPanning(true);
       panStart.current = {
@@ -80,6 +84,9 @@ export const EditorView = () => {
   // Touch panning
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 1) {
+      // Don't pan if we are in drawing mode (unless it's 'pan' or 'type')
+      if (canvasStore.drawTool !== 'type' && canvasStore.drawTool !== 'pan' && canvasStore.drawTool !== 'lasso') return;
+
       setIsPanning(true);
       panStart.current = {
         x: e.touches[0].clientX,
@@ -105,6 +112,7 @@ export const EditorView = () => {
   // Click to create note
   const handleCanvasClick = (e: React.MouseEvent) => {
     if (isPanning) return;
+    if (canvasStore.drawTool !== 'type') return; // Don't create text boxes while using drawing tools
     
     // Calculate click pos relative to canvas origin, factoring in zoom and pan
     const rect = viewportRef.current?.getBoundingClientRect();
@@ -124,18 +132,36 @@ export const EditorView = () => {
     );
   }
 
+  const getBackgroundStyles = () => {
+    let backgroundImage = 'none';
+    let backgroundSize = 'auto';
+
+    if (pageData.gridPattern === 'rule') {
+      backgroundImage = 'linear-gradient(transparent 95%, #cbd5e1 95%)';
+      backgroundSize = `100% ${30 * pageData.zoom}px`;
+    } else if (pageData.gridPattern === 'grid') {
+      backgroundImage = 'linear-gradient(#cbd5e1 1px, transparent 1px), linear-gradient(90deg, #cbd5e1 1px, transparent 1px)';
+      backgroundSize = `${30 * pageData.zoom}px ${30 * pageData.zoom}px`;
+    }
+
+    return {
+      backgroundColor: pageData.pageColor || '#ffffff',
+      backgroundImage,
+      backgroundSize,
+      backgroundPosition: `${pageData.panX}px ${pageData.panY}px`,
+    };
+  };
+
   return (
     <div 
       ref={viewportRef}
+      className="editor-scroll-area"
       style={{ 
         flex: 1, 
         overflow: 'hidden', 
-        backgroundColor: '#ffffff',
         position: 'relative',
         cursor: isPanning ? 'grabbing' : 'text',
-        backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', // Canvas dot grid (optional, OneNote doesn't have it by default but it helps see the canvas)
-        backgroundSize: '20px 20px',
-        backgroundPosition: `${pageData.panX}px ${pageData.panY}px`
+        ...getBackgroundStyles()
       }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -146,16 +172,19 @@ export const EditorView = () => {
       onTouchEnd={handleTouchEnd}
       onClick={handleCanvasClick}
     >
-      {/* The Infinite Canvas Surface */}
+      {/* The Canvas Surface */}
       <div 
+        className="infinite-canvas-surface"
         style={{
           position: 'absolute',
-          top: 0,
-          left: 0,
+          top: pageData.paperSize && pageData.paperSize !== 'auto' ? '40px' : 0,
+          left: pageData.paperSize && pageData.paperSize !== 'auto' ? '40px' : 0,
           transformOrigin: '0 0',
           transform: `translate(${pageData.panX}px, ${pageData.panY}px) scale(${pageData.zoom})`,
-          width: '10000px', // Practically infinite
-          height: '10000px',
+          width: pageData.paperSize === 'a4' ? '794px' : pageData.paperSize === 'a3' ? '1123px' : pageData.paperSize === 'letter' ? '816px' : '10000px',
+          height: pageData.paperSize === 'a4' ? '1123px' : pageData.paperSize === 'a3' ? '1587px' : pageData.paperSize === 'letter' ? '1056px' : '10000px',
+          backgroundColor: pageData.paperSize && pageData.paperSize !== 'auto' ? '#ffffff' : 'transparent',
+          boxShadow: pageData.paperSize && pageData.paperSize !== 'auto' ? '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' : 'none',
         }}
       >
         <PageTitleBlock 
@@ -165,6 +194,8 @@ export const EditorView = () => {
             useTreeStore.getState().renameNode(activeNode.id, newTitle);
           }} 
         />
+
+        <CanvasDrawLayer docId={docId} />
 
         {pageData.containers.map(c => (
           <NoteContainer key={c.id} docId={docId} containerId={c.id} />

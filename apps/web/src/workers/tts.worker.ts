@@ -16,6 +16,7 @@ self.onmessage = async (event: MessageEvent) => {
             self.postMessage({ status: 'loading' });
             try {
                 synthesizer = await pipeline('text-to-speech', 'Xenova/mms-tts-vie', {
+                    device: 'wasm' as any,
                     progress_callback: (x: any) => {
                         self.postMessage({ status: 'progress', data: x });
                     }

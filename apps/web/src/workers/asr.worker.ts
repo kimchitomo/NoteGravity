@@ -35,15 +35,10 @@ self.onmessage = async (event: MessageEvent) => {
                     };
 
                     try {
-                        transcriber = await loadPipeline(device);
+                        transcriber = await loadPipeline('wasm');
                     } catch (err: any) {
                         const errMsg = err.message || err.toString();
-                        if (device === 'webgpu' && errMsg.includes('GPU adapter')) {
-                            self.postMessage({ status: 'error', error: 'Trình duyệt chưa bật WebGPU (hoặc không hỗ trợ). Đang tự động tải bằng CPU...' });
-                            transcriber = await loadPipeline('wasm');
-                        } else {
-                            throw err;
-                        }
+                        throw err;
                     }
 
                     self.postMessage({ status: 'loaded' });

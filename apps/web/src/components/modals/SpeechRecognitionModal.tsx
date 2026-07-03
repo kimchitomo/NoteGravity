@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { Mic, MicOff, Delete, Check, Trash2 } from 'lucide-react';
 import { useTreeStore, asrWorker, initAsrWorker, terminateAsrWorker } from '../../store/useTreeStore';
 
@@ -278,7 +279,7 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
     }, 0);
   };
 
-  return (
+  const modalContent = (
     <div 
       style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }} 
       onMouseDown={(e) => { e.stopPropagation(); onClose(); }}
@@ -405,4 +406,8 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
       </style>
     </div>
   );
+  
+  if (typeof document === 'undefined') return null;
+  return ReactDOM.createPortal(modalContent, document.body);
 };
+

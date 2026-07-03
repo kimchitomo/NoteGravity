@@ -61,6 +61,17 @@ interface TreeState {
   hiddenIds: Set<string>;
   pinnedIds: Set<string>;
   recentIds: string[];
+  actionLog: { 
+    id: string; 
+    timestamp: number; 
+    action: string; 
+    noteTitle: string; 
+    docId?: string;
+    snapshot?: {
+      treeData: TreeNode[];
+      noteContents: Record<string, string>;
+    }
+  }[];
 
   // New States
   editingNodeId: string | null;
@@ -108,6 +119,8 @@ interface TreeState {
   checkPinSchedule: () => void;
 
   // Mutations
+  restoreSnapshot: (snapshot: { treeData: TreeNode[], noteContents: Record<string, string> }, mode: 'global' | 'local', targetDocId?: string) => void;
+  addActionLog: (action: string, noteTitle: string, docId?: string) => void;
   addRootNode: (titleOrType: string, title?: string) => void;
   addNode: (parentId: string, type: 'notebook' | 'note', title: string) => void;
   deleteNode: (id: string) => void;
@@ -146,6 +159,31 @@ const getVisibleNodes = (nodes: TreeNode[], expandedIds: Set<string>): TreeNode[
     }
   }
   return visible;
+};
+
+export const findNodeById = (nodes: TreeNode[], id: string): TreeNode | null => {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    if (node.children) {
+      const found = findNodeById(node.children, id);
+      if (found) return found;
+    }
+  }
+  return null;
+};
+
+const createSnapshot = (treeData: TreeNode[]) => {
+  const noteContents: Record<string, string> = {};
+  if (typeof window !== 'undefined' && window.localStorage) {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('note-content-')) {
+        const docId = key.replace('note-content-', '');
+        noteContents[docId] = localStorage.getItem(key) || '';
+      }
+    }
+  }
+  return { treeData: JSON.parse(JSON.stringify(treeData)), noteContents };
 };
 
 let ttsWorker: Worker | null = null;
@@ -271,6 +309,7 @@ export const useTreeStore = create<TreeState>()(
   pinnedIds: new Set<string>(),
   lockedIds: new Set<string>(),
   recentIds: [],
+  actionLog: [],
 
   editingNodeId: null,
   clipboard: null,
@@ -280,7 +319,7 @@ export const useTreeStore = create<TreeState>()(
   schedulePinModalNodeIds: null,
   highlightedBranchId: null,
   pinSchedule: null,
-  offlineAsrDevice: 'webgpu',
+  offlineAsrDevice: 'wasm',
 
   setOfflineAsrDevice: (device) => set({ offlineAsrDevice: device }),
 
@@ -458,8 +497,66 @@ export const useTreeStore = create<TreeState>()(
   }),
 
   addRecentView: (id) => set((state) => {
-    const newRecents = [id, ...state.recentIds.filter(i => i !== id)].slice(0, 70);
-    return { recentIds: newRecents };
+    let newRecent = [id, ...state.recentIds.filter(recentId => recentId !== id)];
+    if (newRecent.length > 20) newRecent = newRecent.slice(0, 20);
+    
+    // Auto add an action log for view
+    const node = findNodeById(state.data, id);
+    const title = node ? node.title : 'Unknown Note';
+    let newLog = [{ 
+      id: Math.random().toString(36).substring(2, 9), 
+      timestamp: Date.now(), 
+      action: 'Opened note', 
+      noteTitle: title,
+      docId: id,
+      snapshot: createSnapshot(state.data) 
+    }, ...state.actionLog];
+    if (newLog.length > 30) newLog = newLog.slice(0, 30);
+
+    return { recentIds: newRecent, actionLog: newLog };
+  }),
+
+  restoreSnapshot: (snapshot, mode, targetDocId) => set((state) => {
+    if (mode === 'global') {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        Object.entries(snapshot.noteContents).forEach(([docId, content]) => {
+          localStorage.setItem(`note-content-${docId}`, content);
+        });
+        // Bắn event để editor tự reload
+        window.dispatchEvent(new Event('storage'));
+      }
+      return { data: snapshot.treeData };
+    } else if (mode === 'local' && targetDocId) {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        let restoredAny = false;
+        Object.keys(snapshot.noteContents).forEach(key => {
+          if (key === targetDocId || key.startsWith(`${targetDocId}-`)) {
+            const oldContent = snapshot.noteContents[key];
+            localStorage.setItem(`note-content-${key}`, oldContent);
+            restoredAny = true;
+          }
+        });
+        if (restoredAny) {
+          // Bắn event
+          window.dispatchEvent(new CustomEvent('reload-editor', { detail: { docId: targetDocId } }));
+        }
+      }
+      return state;
+    }
+    return state;
+  }),
+
+  addActionLog: (action, noteTitle, docId) => set((state) => {
+    let newLog = [{ 
+      id: Math.random().toString(36).substring(2, 9), 
+      timestamp: Date.now(), 
+      action, 
+      noteTitle,
+      docId,
+      snapshot: createSnapshot(state.data)
+    }, ...state.actionLog];
+    if (newLog.length > 30) newLog = newLog.slice(0, 30);
+    return { actionLog: newLog };
   }),
 
   addRootNode: (titleOrType, title) => set((state) => {
@@ -468,12 +565,17 @@ export const useTreeStore = create<TreeState>()(
     const actualType = title ? titleOrType : 'notebook';
     const newId = `${now}`;
     const newNode: TreeNode = { id: newId, title: actualTitle, type: actualType as any, children: actualType === 'notebook' ? [] : undefined, createdAt: now, updatedAt: now };
+    
+    let newLog = [{ id: Math.random().toString(36).substring(2, 9), timestamp: Date.now(), action: 'Created new node', noteTitle: actualTitle }, ...state.actionLog];
+    if (newLog.length > 50) newLog = newLog.slice(0, 50);
+    
     return { 
       data: [...state.data, newNode],
       focusedId: newId,
       editingNodeId: newId,
       selectedIds: new Set([newId]),
-      anchorId: newId
+      anchorId: newId,
+      actionLog: newLog
     };
   }),
 
@@ -494,24 +596,47 @@ export const useTreeStore = create<TreeState>()(
         return node;
       });
     };
+    let newLog = [{ 
+      id: Math.random().toString(36).substring(2, 9), 
+      timestamp: Date.now(), 
+      action: `Created ${type}`, 
+      noteTitle: title,
+      snapshot: createSnapshot(state.data) 
+    }, ...state.actionLog];
+    if (newLog.length > 30) newLog = newLog.slice(0, 30);
+
     return { 
       data: addRecursive(state.data), 
       expandedIds: new Set(state.expandedIds).add(parentId),
       focusedId: newId,
       editingNodeId: newId,
       selectedIds: new Set([newId]),
-      anchorId: newId
+      anchorId: newId,
+      actionLog: newLog
     };
   }),
 
   deleteNode: (id) => set((state) => {
+    const nodeToDelete = findNodeById(state.data, id);
+    const title = nodeToDelete ? nodeToDelete.title : 'Unknown Note';
+
     const deleteRecursive = (nodes: TreeNode[]): TreeNode[] => {
       return nodes.filter(node => node.id !== id).map(node => ({
         ...node,
         children: node.children ? deleteRecursive(node.children) : undefined
       }));
     };
-    return { data: deleteRecursive(state.data) };
+    
+    let newLog = [{ 
+      id: Math.random().toString(36).substring(2, 9), 
+      timestamp: Date.now(), 
+      action: 'Deleted note', 
+      noteTitle: title,
+      snapshot: createSnapshot(state.data) 
+    }, ...state.actionLog];
+    if (newLog.length > 30) newLog = newLog.slice(0, 30);
+
+    return { data: deleteRecursive(state.data), actionLog: newLog };
   }),
 
   hideNode: (id) => set((state) => {
@@ -531,7 +656,21 @@ export const useTreeStore = create<TreeState>()(
     const mapNodes = (nodes: TreeNode[]): TreeNode[] => nodes.map(n => 
       n.id === id ? { ...n, title, updatedAt: now } : { ...n, children: n.children ? mapNodes(n.children) : undefined }
     );
-    return { data: mapNodes(state.data) };
+
+    const oldNode = findNodeById(state.data, id);
+    const oldTitle = oldNode ? oldNode.title : 'Unknown Note';
+
+    let newLog = [{ 
+      id: Math.random().toString(36).substring(2, 9), 
+      timestamp: Date.now(), 
+      action: `Renamed from "${oldTitle}"`, 
+      noteTitle: title,
+      docId: id,
+      snapshot: createSnapshot(state.data) 
+    }, ...state.actionLog];
+    if (newLog.length > 30) newLog = newLog.slice(0, 30);
+
+    return { data: mapNodes(state.data), actionLog: newLog };
   }),
 
   numberChildNotes: (id) => set((state) => {

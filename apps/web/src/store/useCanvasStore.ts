@@ -1,66 +1,144 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export interface NoteContainerData {
   id: string;
   x: number;
   y: number;
   width: number;
+  isAutoWidth?: boolean;
   isFocused?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface StrokePoint {
+  x: number;
+  y: number;
+  pressure?: number;
+}
+
+export interface Stroke {
+  id: string;
+  points: StrokePoint[];
+  color: string;
+  width: number;
+  type: 'pen' | 'highlighter';
 }
 
 export interface PageData {
   panX: number;
   panY: number;
   zoom: number;
+  pageColor?: string;
+  gridPattern?: 'none' | 'rule' | 'grid';
+  paperSize?: 'auto' | 'a4' | 'a3' | 'letter';
   containers: NoteContainerData[];
+  strokes: Stroke[];
 }
 
 interface CanvasState {
   pages: Record<string, PageData>;
+  drawTool: 'type' | 'lasso' | 'pan' | 'pen' | 'highlighter' | 'shape';
+  drawColor: string;
+  drawWidth: number;
+  
   getPageData: (docId: string) => PageData;
+  setDrawTool: (tool: 'type' | 'lasso' | 'pan' | 'pen' | 'highlighter' | 'shape') => void;
+  setDrawColor: (color: string) => void;
+  setDrawWidth: (width: number) => void;
+  
   setPan: (docId: string, panX: number, panY: number) => void;
   setZoom: (docId: string, zoom: number) => void;
+  setPageColor: (docId: string, color: string) => void;
+  setGridPattern: (docId: string, pattern: 'none' | 'rule' | 'grid') => void;
+  setPaperSize: (docId: string, size: 'auto' | 'a4' | 'a3' | 'letter') => void;
   addContainer: (docId: string, x: number, y: number) => string;
   updateContainer: (docId: string, containerId: string, updates: Partial<NoteContainerData>) => void;
   removeContainer: (docId: string, containerId: string) => void;
+  addStroke: (docId: string, stroke: Stroke) => void;
+  clearStrokes: (docId: string) => void;
 }
 
 const defaultPageData: PageData = {
   panX: 0,
   panY: 0,
   zoom: 1,
+  pageColor: '#ffffff',
+  gridPattern: 'none',
+  paperSize: 'auto',
   containers: [],
+  strokes: [],
 };
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-export const useCanvasStore = create<CanvasState>((set, get) => ({
-  pages: {},
-  
-  getPageData: (docId: string) => {
-    return get().pages[docId] || defaultPageData;
-  },
+export const useCanvasStore = create<CanvasState>()(
+  persist(
+    (set, get) => ({
+      pages: {},
+      drawTool: 'type',
+      drawColor: '#000000',
+      drawWidth: 3,
+      
+      setDrawTool: (tool) => set({ drawTool: tool }),
+      setDrawColor: (color) => set({ drawColor: color }),
+      setDrawWidth: (width) => set({ drawWidth: width }),
+      
+      getPageData: (docId: string) => {
+        return get().pages[docId] || defaultPageData;
+      },
 
-  setPan: (docId, panX, panY) => set((state) => ({
-    pages: {
-      ...state.pages,
-      [docId]: {
-        ...(state.pages[docId] || defaultPageData),
-        panX,
-        panY,
-      }
-    }
-  })),
+      setPan: (docId, panX, panY) => set((state) => ({
+        pages: {
+          ...state.pages,
+          [docId]: {
+            ...(state.pages[docId] || defaultPageData),
+            panX,
+            panY,
+          }
+        }
+      })),
 
-  setZoom: (docId, zoom) => set((state) => ({
-    pages: {
-      ...state.pages,
-      [docId]: {
-        ...(state.pages[docId] || defaultPageData),
-        zoom,
-      }
-    }
-  })),
+      setZoom: (docId, zoom) => set((state) => ({
+        pages: {
+          ...state.pages,
+          [docId]: {
+            ...(state.pages[docId] || defaultPageData),
+            zoom,
+          }
+        }
+      })),
+
+      setPageColor: (docId, color) => set((state) => ({
+        pages: {
+          ...state.pages,
+          [docId]: {
+            ...(state.pages[docId] || defaultPageData),
+            pageColor: color,
+          }
+        }
+      })),
+
+      setGridPattern: (docId, pattern) => set((state) => ({
+        pages: {
+          ...state.pages,
+          [docId]: {
+            ...(state.pages[docId] || defaultPageData),
+            gridPattern: pattern,
+          }
+        }
+      })),
+
+      setPaperSize: (docId, size) => set((state) => ({
+        pages: {
+          ...state.pages,
+          [docId]: {
+            ...(state.pages[docId] || defaultPageData),
+            paperSize: size,
+          }
+        }
+      })),
 
   addContainer: (docId, x, y) => {
     const newId = generateId();
@@ -74,7 +152,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           ...state.pages,
           [docId]: {
             ...page,
-            containers: [...containers, { id: newId, x, y, width: 400, isFocused: true }]
+            containers: [...containers, { id: newId, x, y, width: 400, isAutoWidth: true, isFocused: true }]
           }
         }
       };
@@ -113,5 +191,32 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
       }
     };
-  })
-}));
+  }),
+
+  addStroke: (docId, stroke) => set((state) => {
+    const page = state.pages[docId] || defaultPageData;
+    return {
+      pages: {
+        ...state.pages,
+        [docId]: {
+          ...page,
+          strokes: [...(page.strokes || []), stroke]
+        }
+      }
+    };
+  }),
+
+  clearStrokes: (docId) => set((state) => {
+    const page = state.pages[docId];
+    if (!page) return state;
+    return {
+      pages: {
+        ...state.pages,
+        [docId]: {
+          ...page,
+          strokes: []
+        }
+      }
+    };
+  }),
+}), { name: 'canvas-storage' }));

@@ -9,8 +9,11 @@ import Image from '@tiptap/extension-image';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Underline from '@tiptap/extension-underline';
-import TextStyle from '@tiptap/extension-text-style';
-import Color from '@tiptap/extension-color';
+import { TextStyle } from '@tiptap/extension-text-style';
+import { Color } from '@tiptap/extension-color';
+import { FontFamily } from '@tiptap/extension-font-family';
+import { FontSize } from './FontSize';
+import { AudioExtension, VideoExtension, IframeExtension } from './extensions/MediaExtensions';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import * as Y from 'yjs';
@@ -45,46 +48,24 @@ export interface TiptapEditorProps {
   createdAt?: number;
   updatedAt?: number;
   isLocked?: boolean;
+  onFocus?: (editor: any) => void;
+  onContentChange?: () => void;
+  autoWidth?: boolean;
 }
 
-const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-doc-1', createdAt, updatedAt, isLocked }) => {
+const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-doc-1', createdAt, updatedAt, isLocked, onFocus, onContentChange, autoWidth }) => {
   const [headings, setHeadings] = useState<any[]>([]);
 
   // Chỉ khởi tạo 1 lần theo docId
   const ydoc = React.useMemo(() => new Y.Doc(), [docId]);
 
-  // Khởi tạo provider đồng bộ để tránh null provider gây lỗi ở CollaborationCursor
-  const provider = React.useMemo(() => {
-    return new WebsocketProvider('ws://localhost:1234', docId, ydoc);
-  }, [ydoc, docId]);
-
-  useEffect(() => {
-    provider.on('status', (event: { status: string }) => {
-      console.log('WS status:', event.status); // 'connected' | 'disconnected'
-    });
-
-    return () => {
-      provider.destroy();
-      ydoc.destroy();
-    };
-  }, [provider, ydoc]);
+  // Removed WebsocketProvider to prevent connection errors during offline development
 
   const editor = useEditor({
     editable: !isLocked,
     extensions: [
       StarterKit.configure({
-        // Tắt history mặc định vì Collaboration extension sẽ tự quản lý history
-        history: false,
-      }),
-      Collaboration.configure({
-        document: ydoc,
-      }),
-      CollaborationCursor.configure({
-        provider,
-        user: {
-          name: 'User ' + Math.floor(Math.random() * 100),
-          color: getRandomColor(),
-        },
+        codeBlock: false, // Prevent conflict with CodeBlockLowlight
       }),
       Table.configure({ resizable: true }),
       TableRow,
@@ -103,12 +84,20 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
       Highlight.configure({ multicolor: true }),
       Typography,
       Youtube,
+      AudioExtension,
+      VideoExtension,
+      IframeExtension,
       CodeBlockLowlight.configure({ lowlight }),
       SlashMenu, 
+      FontFamily,
+      FontSize,
       CanvasExtension, // Tích hợp TLDraw NodeView
       DocumentLinkExtension,
     ],
-    onUpdate({ editor }) {
+    onFocus({ editor }) {
+      if (onFocus) onFocus(editor);
+    },
+    onUpdate({ editor, transaction }) {
       const newHeadings: any[] = [];
       editor.state.doc.descendants((node, pos) => {
         if (node.type.name === 'heading') {
@@ -123,28 +112,51 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
       
       // Auto-save
       localStorage.setItem(`note-content-${docId}`, editor.getHTML());
+
+      if (transaction.docChanged && onContentChange) {
+        onContentChange();
+      }
     },
     // Không dùng 'content' tĩnh khi dùng Collaboration
     // content: '<p>Bắt đầu nhập nội dung tại đây...</p>',
+    content: localStorage.getItem(`note-content-${docId}`) || '<p>Bắt đầu nhập nội dung tại đây...</p>',
   }, [docId]); // Re-create editor when docId changes
 
   useEffect(() => {
-    if (editor) {
-      const saved = localStorage.getItem(`note-content-${docId}`);
-      if (saved) {
-        editor.commands.setContent(saved);
-      }
-    }
-  }, [editor, docId]);
-
-  useEffect(() => {
-    if (editor) {
+    if (editor && isLocked !== undefined) {
       editor.setEditable(!isLocked);
     }
   }, [editor, isLocked]);
 
+  // Listen for Time Travel (Undo) events
+  useEffect(() => {
+    if (!editor) return;
+
+    const reloadContent = () => {
+      const savedContent = localStorage.getItem(`note-content-${docId}`);
+      if (savedContent && savedContent !== editor.getHTML()) {
+        editor.commands.setContent(savedContent);
+      }
+    };
+
+    const handleReloadEditor = (e: any) => {
+      const targetId = e.detail?.docId;
+      if (targetId && (docId === targetId || docId.startsWith(`${targetId}-`))) {
+        reloadContent();
+      }
+    };
+
+    window.addEventListener('reload-editor', handleReloadEditor);
+    window.addEventListener('storage', reloadContent);
+
+    return () => {
+      window.removeEventListener('reload-editor', handleReloadEditor);
+      window.removeEventListener('storage', reloadContent);
+    };
+  }, [editor, docId]);
+
   return (
-    <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: 'var(--bg-color)' }}>
+    <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: autoWidth ? 'max-content' : '100%', minWidth: autoWidth ? 'min-content' : '100%', backgroundColor: 'transparent' }}>
 
       {/* Editor Content Area */}
       <div className="editor-scroll-area" style={{ display: 'flex', flexDirection: 'row', flex: 1, overflow: 'hidden' }}>

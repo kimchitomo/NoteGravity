@@ -237,3 +237,35 @@ body {
   background-color: var(--border-color);
   margin: 0 4px;
 }
+
+/* --- Print Styles --- */
+@media print {
+  body, html, #root {
+    background-color: white !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .backstage-container, .sidebar, .ribbon-group, .title-bar, .status-bar, button {
+    display: none !important;
+  }
+  .infinite-canvas-surface {
+    background: none !important;
+    overflow: visible !important;
+    transform: none !important;
+    position: relative !important;
+  }
+  .editor-scroll-area {
+    overflow: visible !important;
+    height: auto !important;
+  }
+  #root > div {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  /* Specifically hide the layout's TitleBar, Ribbon, StatusBar */
+  #root > div > div:first-child,
+  #root > div > div:nth-child(2),
+  #root > div > div:last-child {
+    display: none !important; 
+  }
+}

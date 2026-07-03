@@ -14,15 +14,12 @@ export const TableMenu: React.FC<TableMenuProps> = ({ editor }) => {
     return null;
   }
 
-  // Should show only if cursor is inside a table
-  const isTableActive = editor.isActive('table');
-
-  if (!isTableActive) {
-    return null;
-  }
-
   return (
-    <BubbleMenu editor={editor} tippyOptions={{ duration: 100, placement: 'top' }}>
+    <BubbleMenu 
+      editor={editor} 
+      tippyOptions={{ duration: 100, placement: 'top' }}
+      shouldShow={({ editor }) => editor.isActive('table')}
+    >
       <div className="mini-toolbar">
         <button className="mini-btn" onClick={() => editor.chain().focus().addColumnBefore().run()} title="Add Column Before">
           <ArrowLeftToLine size={14} />

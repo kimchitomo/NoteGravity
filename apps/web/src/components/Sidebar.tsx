@@ -252,6 +252,11 @@ export const Sidebar = () => {
       if (timerId) clearInterval(timerId);
     };
   }, [pinSchedule, checkPinSchedule]);
+  
+  useEffect(() => {
+    // Auto collapse folders that haven't been accessed in 3 days on initial load
+    useTreeStore.getState().autoCollapseOldFolders();
+  }, []);
 
   return (
     <>

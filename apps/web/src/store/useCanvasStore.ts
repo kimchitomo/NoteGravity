@@ -39,6 +39,8 @@ export interface PageData {
 
 interface CanvasState {
   pages: Record<string, PageData>;
+  past: Record<string, PageData[]>;
+  future: Record<string, PageData[]>;
   drawTool: 'type' | 'lasso' | 'pan' | 'pen' | 'highlighter' | 'shape';
   drawColor: string;
   drawWidth: number;
@@ -58,6 +60,10 @@ interface CanvasState {
   removeContainer: (docId: string, containerId: string) => void;
   addStroke: (docId: string, stroke: Stroke) => void;
   clearStrokes: (docId: string) => void;
+  
+  saveHistory: (docId: string) => void;
+  undo: (docId: string) => void;
+  redo: (docId: string) => void;
 }
 
 const defaultPageData: PageData = {
@@ -66,7 +72,7 @@ const defaultPageData: PageData = {
   zoom: 1,
   pageColor: '#ffffff',
   gridPattern: 'none',
-  paperSize: 'auto',
+  paperSize: 'a4',
   containers: [],
   strokes: [],
 };
@@ -77,6 +83,8 @@ export const useCanvasStore = create<CanvasState>()(
   persist(
     (set, get) => ({
       pages: {},
+      past: {},
+      future: {},
       drawTool: 'type',
       drawColor: '#000000',
       drawWidth: 3,
@@ -130,18 +138,22 @@ export const useCanvasStore = create<CanvasState>()(
         }
       })),
 
-      setPaperSize: (docId, size) => set((state) => ({
-        pages: {
-          ...state.pages,
-          [docId]: {
-            ...(state.pages[docId] || defaultPageData),
-            paperSize: size,
+      setPaperSize: (docId, size) => {
+        get().saveHistory(docId);
+        set((state) => ({
+          pages: {
+            ...state.pages,
+            [docId]: {
+              ...(state.pages[docId] || defaultPageData),
+              paperSize: size,
+            }
           }
-        }
-      })),
+        }));
+      },
 
   addContainer: (docId, x, y) => {
     const newId = generateId();
+    get().saveHistory(docId);
     set((state) => {
       const page = state.pages[docId] || defaultPageData;
       // Unfocus others
@@ -178,8 +190,10 @@ export const useCanvasStore = create<CanvasState>()(
     };
   }),
 
-  removeContainer: (docId, containerId) => set((state) => {
-    const page = state.pages[docId];
+  removeContainer: (docId, containerId) => {
+    get().saveHistory(docId);
+    set((state) => {
+      const page = state.pages[docId];
     if (!page) return state;
 
     return {
@@ -191,10 +205,13 @@ export const useCanvasStore = create<CanvasState>()(
         }
       }
     };
-  }),
+    });
+  },
 
-  addStroke: (docId, stroke) => set((state) => {
-    const page = state.pages[docId] || defaultPageData;
+  addStroke: (docId, stroke) => {
+    get().saveHistory(docId);
+    set((state) => {
+      const page = state.pages[docId] || defaultPageData;
     return {
       pages: {
         ...state.pages,
@@ -204,10 +221,13 @@ export const useCanvasStore = create<CanvasState>()(
         }
       }
     };
-  }),
+    });
+  },
 
-  clearStrokes: (docId) => set((state) => {
-    const page = state.pages[docId];
+  clearStrokes: (docId) => {
+    get().saveHistory(docId);
+    set((state) => {
+      const page = state.pages[docId];
     if (!page) return state;
     return {
       pages: {
@@ -218,5 +238,48 @@ export const useCanvasStore = create<CanvasState>()(
         }
       }
     };
+    });
+  },
+
+  saveHistory: (docId) => set((state) => {
+    const page = state.pages[docId] || defaultPageData;
+    const docPast = state.past[docId] || [];
+    return {
+      past: { ...state.past, [docId]: [...docPast, page].slice(-50) },
+      future: { ...state.future, [docId]: [] }
+    };
   }),
+
+  undo: (docId) => set((state) => {
+    const docPast = state.past[docId] || [];
+    if (docPast.length === 0) return state;
+    
+    const previous = docPast[docPast.length - 1];
+    const newPast = docPast.slice(0, -1);
+    const docFuture = state.future[docId] || [];
+    const current = state.pages[docId] || defaultPageData;
+    
+    return {
+      pages: { ...state.pages, [docId]: previous },
+      past: { ...state.past, [docId]: newPast },
+      future: { ...state.future, [docId]: [current, ...docFuture] }
+    };
+  }),
+
+  redo: (docId) => set((state) => {
+    const docFuture = state.future[docId] || [];
+    if (docFuture.length === 0) return state;
+    
+    const next = docFuture[0];
+    const newFuture = docFuture.slice(1);
+    const docPast = state.past[docId] || [];
+    const current = state.pages[docId] || defaultPageData;
+    
+    return {
+      pages: { ...state.pages, [docId]: next },
+      past: { ...state.past, [docId]: [...docPast, current] },
+      future: { ...state.future, [docId]: newFuture }
+    };
+  }),
+
 }), { name: 'canvas-storage' }));

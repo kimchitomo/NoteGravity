@@ -18,15 +18,17 @@ export const PageTitleBlock: React.FC<PageTitleBlockProps> = ({ title, createdAt
     <div 
       style={{ 
         position: 'absolute', 
-        top: 0, 
-        left: 0, 
-        width: '33.33%', 
-        padding: '4px 16px 0px 16px', // Reduced padding
-        backgroundColor: 'transparent'
+        top: '20px', 
+        left: '20px', 
+        width: '800px', 
+        maxWidth: 'calc(100% - 40px)',
+        padding: '0', 
+        backgroundColor: 'transparent',
+        zIndex: 10
       }}
       onClick={(e) => e.stopPropagation()} // Prevent creating a new note container when clicking here
     >
-      <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '4px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '8px' }}>
         <button
           onClick={() => setShowVoiceModal(true)}
           style={{
@@ -52,17 +54,18 @@ export const PageTitleBlock: React.FC<PageTitleBlockProps> = ({ title, createdAt
           onChange={(e) => onTitleChange(e.target.value)}
           placeholder="Page Title"
           style={{
-            fontSize: '22px', // Reduced from 28px
-            fontWeight: 'bold',
+            fontSize: '16px',
+            fontWeight: '500',
             fontFamily: 'Inter, "Segoe UI", sans-serif',
+            letterSpacing: 'normal',
             border: 'none',
             outline: 'none',
             backgroundColor: 'transparent',
             flex: 1,
             color: 'var(--text-color, #111827)',
-            padding: '0', // Removed all internal padding
+            padding: '0', 
             margin: '0',
-            lineHeight: '1.2'
+            lineHeight: '1.4'
           }}
         />
       </div>

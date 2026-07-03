@@ -367,7 +367,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
                 {(isHovered || isSelected) && (
                   <>
                     <button 
-                      onClick={(e) => { e.stopPropagation(); addNode(node.id, 'note', 'Ghi chú mới'); if (!expandedIds.has(node.id)) toggleExpand(node.id); }}
+                      onClick={(e) => { e.stopPropagation(); addNode(node.id, 'note', 'Ghi chú mới'); }}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px', color: 'inherit' }}
                       title="Thêm Ghi chú"
                     >

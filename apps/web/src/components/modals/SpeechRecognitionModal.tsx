@@ -58,6 +58,17 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+      const defaultTitles = ['Ghi chú mới', 'Thư mục mới', 'Tiêu đề mới', 'Page Title', 'Sổ tay mới', 'Untitled', 'Sổ tay cá nhân', 'Sổ tay Công việc'];
+      if (defaultTitles.includes(initialText.trim())) {
+        textareaRef.current.select();
+      } else {
+        textareaRef.current.setSelectionRange(initialText.length, initialText.length);
+      }
+      handleTextOrCursorChange();
+    }
+    
     // Auto start listening on mount immediately to preserve user gesture token
     startListening();
 

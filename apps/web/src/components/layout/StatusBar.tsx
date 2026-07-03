@@ -1,7 +1,31 @@
 import React from 'react';
 import { Cloud, CheckCircle2, AlertTriangle, Minus, Plus } from 'lucide-react';
+import { useWorkspaceStore } from '../../store/useWorkspaceStore';
+import { useCanvasStore } from '../../store/useCanvasStore';
 
 export const StatusBar: React.FC = () => {
+  const activeNoteId = useWorkspaceStore(state => state.activeNoteId);
+  const zoom = useCanvasStore(state => activeNoteId ? (state.pages[activeNoteId]?.zoom || 1) : 1);
+  const setZoom = useCanvasStore(state => state.setZoom);
+
+  const zoomPercent = Math.round(zoom * 100);
+
+  const handleZoomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!activeNoteId) return;
+    const newZoom = parseInt(e.target.value) / 100;
+    setZoom(activeNoteId, newZoom);
+  };
+
+  const handleZoomOut = () => {
+    if (!activeNoteId) return;
+    setZoom(activeNoteId, Math.max(0.1, zoom - 0.1));
+  };
+
+  const handleZoomIn = () => {
+    if (!activeNoteId) return;
+    setZoom(activeNoteId, Math.min(3, zoom + 0.1));
+  };
+
   return (
     <div style={{
       height: '24px',
@@ -22,17 +46,14 @@ export const StatusBar: React.FC = () => {
           <CheckCircle2 size={12} color="#10b981" />
           <span>Page synced</span>
         </div>
-        
-        {/* Placeholder for errors */}
-        {/* <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#ef4444', cursor: 'pointer' }}>
-          <AlertTriangle size={14} />
-          <span>1 Error</span>
-        </div> */}
       </div>
 
       {/* Right Controls (Zoom) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <button style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+        <button 
+          onClick={handleZoomOut}
+          disabled={!activeNoteId}
+          style={{ background: 'none', border: 'none', cursor: activeNoteId ? 'pointer' : 'default', display: 'flex', alignItems: 'center', opacity: activeNoteId ? 1 : 0.5 }}>
           <Minus size={14} color="#6b7280" />
         </button>
         
@@ -40,16 +61,21 @@ export const StatusBar: React.FC = () => {
           type="range" 
           min="10" 
           max="300" 
-          defaultValue="100" 
-          style={{ width: '100px', cursor: 'pointer' }}
+          value={zoomPercent} 
+          onChange={handleZoomChange}
+          disabled={!activeNoteId}
+          style={{ width: '100px', cursor: activeNoteId ? 'pointer' : 'default', opacity: activeNoteId ? 1 : 0.5 }}
           title="Zoom Level"
         />
         
-        <button style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+        <button 
+          onClick={handleZoomIn}
+          disabled={!activeNoteId}
+          style={{ background: 'none', border: 'none', cursor: activeNoteId ? 'pointer' : 'default', display: 'flex', alignItems: 'center', opacity: activeNoteId ? 1 : 0.5 }}>
           <Plus size={14} color="#6b7280" />
         </button>
         
-        <span style={{ minWidth: '40px', textAlign: 'right' }}>100%</span>
+        <span style={{ minWidth: '40px', textAlign: 'right', opacity: activeNoteId ? 1 : 0.5 }}>{zoomPercent}%</span>
       </div>
     </div>
   );

@@ -29,31 +29,66 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
         const originalTransform = canvasEl.style.transform;
         canvasEl.style.transform = 'none';
 
-        // Calculate bounding box of all children to capture overflowing content
-        let maxW = canvasEl.offsetWidth || 800;
-        let maxH = canvasEl.offsetHeight || 1123;
+        let maxW = canvasEl.offsetWidth;
+        let maxH = canvasEl.offsetHeight;
         
-        const children = canvasEl.children;
-        for (let i = 0; i < children.length; i++) {
-           const el = children[i] as HTMLElement;
-           const bottom = el.offsetTop + el.offsetHeight;
-           const right = el.offsetLeft + el.offsetWidth;
-           if (bottom > maxH) maxH = bottom;
-           if (right > maxW) maxW = right;
+        // If it's an infinite canvas without explicit bounds, calculate bounds manually
+        if (maxW >= 10000) {
+          maxW = 800;
+          maxH = 1123;
+          const children = canvasEl.children;
+          for (let i = 0; i < children.length; i++) {
+             const el = children[i] as HTMLElement;
+             const bottom = el.offsetTop + el.offsetHeight;
+             const right = el.offsetLeft + el.offsetWidth;
+             if (bottom > maxH) maxH = bottom;
+             if (right > maxW) maxW = right;
+          }
+          maxW += 40;
+          maxH += 40;
         }
 
         html2canvas(canvasEl, {
           backgroundColor: '#ffffff',
           useCORS: true,
-          scale: 1.5, // High resolution for printing
-          width: maxW + 40,
-          height: maxH + 40,
-          windowWidth: maxW + 40,
-          windowHeight: maxH + 40,
+          scale: 1.5,
+          width: maxW,
+          height: maxH,
+          windowWidth: maxW,
+          windowHeight: maxH,
           logging: false
         }).then(canvas => {
           canvasEl.style.transform = originalTransform;
-          setPreviewImage(canvas.toDataURL('image/png'));
+          
+          let cols = 1;
+          let rows = 1;
+          if (maxW < 10000) {
+            const pW = printSettings.paper === 'a4' ? 794 : printSettings.paper === 'a3' ? 1123 : 816;
+            const pH = printSettings.paper === 'a4' ? 1123 : printSettings.paper === 'a3' ? 1587 : 1056;
+            cols = Math.round(maxW / pW);
+            rows = Math.round(maxH / pH);
+          }
+          
+          const imgPageWidth = canvas.width / cols;
+          const imgPageHeight = canvas.height / rows;
+          
+          const pageImages: string[] = [];
+          const sliceCanvas = document.createElement('canvas');
+          const ctx = sliceCanvas.getContext('2d');
+          if (ctx) {
+            sliceCanvas.width = imgPageWidth;
+            sliceCanvas.height = imgPageHeight;
+            
+            for (let r = 0; r < rows; r++) {
+              for (let c = 0; c < cols; c++) {
+                ctx.clearRect(0, 0, imgPageWidth, imgPageHeight);
+                ctx.drawImage(canvas, c * imgPageWidth, r * imgPageHeight, imgPageWidth, imgPageHeight, 0, 0, imgPageWidth, imgPageHeight);
+                pageImages.push(sliceCanvas.toDataURL('image/png'));
+              }
+            }
+          }
+
+          setPreviewImage(pageImages.join('|||')); // Store as a joined string to avoid changing state type
           setIsGeneratingPreview(false);
         }).catch(err => {
           console.error("Failed to generate preview", err);
@@ -78,21 +113,23 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
       return;
     }
 
-    const previewContainer = document.getElementById('preview-container');
-    if (!previewContainer) return;
-    
-    const clientHeight = previewContainer.clientHeight;
-    const scrollHeight = previewContainer.scrollHeight;
-    const totalPages = Math.ceil(scrollHeight / clientHeight);
+    const allPages = previewImage.split('|||');
+    const totalPages = allPages.length;
 
     // Parse selected pages
     let selectedPages: number[] = [];
     if (printSettings.pages === 'all') {
       for (let i = 1; i <= totalPages; i++) selectedPages.push(i);
     } else if (printSettings.pages === 'current') {
-      const currentScroll = previewContainer.scrollTop;
-      const current = Math.min(totalPages, Math.max(1, Math.ceil((currentScroll + clientHeight * 0.5) / clientHeight)));
-      selectedPages.push(current);
+      const previewContainer = document.getElementById('preview-container');
+      if (previewContainer) {
+        const currentScroll = previewContainer.scrollTop;
+        const clientHeight = previewContainer.clientHeight;
+        const current = Math.min(totalPages, Math.max(1, Math.ceil((currentScroll + clientHeight * 0.5) / clientHeight)));
+        selectedPages.push(current);
+      } else {
+        selectedPages.push(1);
+      }
     } else if (printSettings.pages === 'custom' && printSettings.customPages) {
       const parts = printSettings.customPages.split(',');
       parts.forEach(part => {
@@ -117,35 +154,17 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
       for (let i = 1; i <= totalPages; i++) selectedPages.push(i); // fallback to all
     }
 
-    const img = new Image();
-    img.onload = () => {
-      const imgPageHeight = img.height / (scrollHeight / clientHeight);
+    const pageImages = selectedPages.map(pageNum => allPages[pageNum - 1]);
 
-      // Slice the image into separate data URLs for the selected pages
-      const pageImages: string[] = [];
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        canvas.width = img.width;
-        canvas.height = imgPageHeight;
-
-        selectedPages.forEach(pageNum => {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          const sourceY = (pageNum - 1) * imgPageHeight;
-          ctx.drawImage(img, 0, sourceY, img.width, imgPageHeight, 0, 0, canvas.width, canvas.height);
-          pageImages.push(canvas.toDataURL('image/png'));
-        });
-      }
-
-      // Create a hidden iframe
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      document.body.appendChild(iframe);
+    // Create a hidden iframe
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
 
       const iframeDoc = iframe.contentWindow?.document;
       if (iframeDoc) {
@@ -201,8 +220,6 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
           if (document.body.contains(iframe)) document.body.removeChild(iframe);
         }, 10000);
       }
-    };
-    img.src = previewImage;
   };
 
   return (
@@ -303,7 +320,7 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
             </div>
             <div style={{ flex: 1, backgroundColor: '#e5e7eb', padding: '40px', borderRadius: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
               <div id="preview-page-indicator" style={{ marginBottom: '12px', fontSize: '14px', color: '#6b7280', fontWeight: 500 }}>
-                Trang 1 / 1
+                Trang 1 / {previewImage ? previewImage.split('|||').length : 1}
               </div>
               <div 
                 id="preview-container"
@@ -324,27 +341,16 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
                   const target = e.currentTarget;
                   const currentScroll = target.scrollTop;
                   const clientHeight = target.clientHeight;
-                  const scrollHeight = target.scrollHeight;
                   
-                  const pages = Math.ceil(scrollHeight / clientHeight);
-                  const current = Math.min(pages, Math.max(1, Math.ceil((currentScroll + clientHeight * 0.5) / clientHeight)));
+                  const totalPages = previewImage ? previewImage.split('|||').length : 1;
+                  const current = Math.min(totalPages, Math.max(1, Math.ceil((currentScroll + clientHeight * 0.5) / clientHeight)));
                   
                   target.setAttribute('data-current-page', current.toString());
-                  target.setAttribute('data-total-pages', pages.toString());
+                  target.setAttribute('data-total-pages', totalPages.toString());
                   
-                  // Force an update to the sibling element containing the page text
                   const pageIndicator = document.getElementById('preview-page-indicator');
                   if (pageIndicator) {
-                    pageIndicator.innerText = `Trang ${current} / ${pages}`;
-                  }
-                }}
-                onLoad={(e) => {
-                  // Trigger scroll calculation when image loads
-                  const target = e.currentTarget;
-                  const pages = Math.ceil(target.scrollHeight / target.clientHeight);
-                  const pageIndicator = document.getElementById('preview-page-indicator');
-                  if (pageIndicator) {
-                    pageIndicator.innerText = `Trang 1 / ${pages}`;
+                    pageIndicator.innerText = `Trang ${current} / ${totalPages}`;
                   }
                 }}
               >
@@ -353,27 +359,22 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
                     <span style={{ fontSize: '14px', color: '#6b7280' }}>Đang tạo bản xem trước...</span>
                   </div>
                 ) : previewImage ? (
-                  <img 
-                    src={previewImage} 
-                    onLoad={(e) => {
-                      // Initial page calc after image loads
-                      const target = e.currentTarget.parentElement;
-                      if (target) {
-                        const pages = Math.ceil(target.scrollHeight / target.clientHeight);
-                        const pageIndicator = document.getElementById('preview-page-indicator');
-                        if (pageIndicator) {
-                          pageIndicator.innerText = `Trang 1 / ${pages}`;
-                        }
-                      }
-                    }}
-                    style={{ 
-                      width: printSettings.scale === 'fit-width' ? '100%' : 'auto', 
-                      height: printSettings.scale === 'fit-height' ? '100%' : 'auto', 
-                      display: 'block',
-                      maxWidth: printSettings.scale === 'actual' ? 'none' : (printSettings.scale === 'fit-width' ? '100%' : 'none')
-                    }} 
-                    alt="Print Preview" 
-                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', width: '100%', gap: '8px', padding: '8px', backgroundColor: '#e5e7eb' }}>
+                    {previewImage.split('|||').map((src, index) => (
+                      <div key={index} style={{ backgroundColor: 'white', position: 'relative', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                        <img 
+                          src={src} 
+                          style={{ 
+                            width: printSettings.scale === 'fit-width' ? '100%' : 'auto', 
+                            height: printSettings.scale === 'fit-height' ? '100%' : 'auto', 
+                            display: 'block',
+                            maxWidth: printSettings.scale === 'actual' ? 'none' : (printSettings.scale === 'fit-width' ? '100%' : 'none')
+                          }} 
+                          alt={`Page ${index + 1}`} 
+                        />
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div style={{ display: 'flex', height: '100%', width: '100%', alignItems: 'center', justifyContent: 'center' }}>
                     <span>Print Preview</span>

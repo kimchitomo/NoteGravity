@@ -13,7 +13,9 @@ export const EditorView = () => {
   
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
-  const panStart = useRef({ x: 0, y: 0, initialPanX: 0, initialPanY: 0 });
+  const [showZoomOverlay, setShowZoomOverlay] = useState(false);
+  const zoomTimer = useRef<any>(null);
+  const panStart = useRef({ x: 0, y: 0, initialScrollLeft: 0, initialScrollTop: 0 });
 
   // Find note details
   const findNode = (nodes: any[], id: string): any => {
@@ -30,7 +32,49 @@ export const EditorView = () => {
   const docId = activeNoteId || 'default-doc';
   const pageData = canvasStore.getPageData(docId);
 
-  // Mouse wheel for zooming / panning
+  const [canvasBounds, setCanvasBounds] = useState({ width: 794, height: 1123 });
+
+  useEffect(() => {
+    if (pageData.paperSize === 'auto') return;
+    
+    const updateBounds = () => {
+      const canvasEl = document.querySelector('.infinite-canvas-surface') as HTMLElement;
+      if (!canvasEl) return;
+      
+      let maxW = 0;
+      let maxH = 0;
+      const children = canvasEl.children;
+      for (let i = 0; i < children.length; i++) {
+         const el = children[i] as HTMLElement;
+         if (el.classList.contains('canvas-bg-page')) continue;
+         const bottom = el.offsetTop + el.offsetHeight;
+         const right = el.offsetLeft + el.offsetWidth;
+         if (bottom > maxH) maxH = bottom;
+         if (right > maxW) maxW = right;
+      }
+      
+      const pW = pageData.paperSize === 'a4' ? 794 : pageData.paperSize === 'a3' ? 1123 : 816;
+      const pH = pageData.paperSize === 'a4' ? 1123 : pageData.paperSize === 'a3' ? 1587 : 1056;
+      
+      const cols = Math.max(1, Math.ceil(maxW / pW));
+      const rows = Math.max(1, Math.ceil(maxH / pH));
+      
+      setCanvasBounds(prev => {
+        const newWidth = cols * pW;
+        const newHeight = rows * pH;
+        if (prev.width !== newWidth || prev.height !== newHeight) {
+          return { width: newWidth, height: newHeight };
+        }
+        return prev;
+      });
+    };
+    
+    const interval = setInterval(updateBounds, 1000);
+    updateBounds();
+    return () => clearInterval(interval);
+  }, [pageData.paperSize, docId]);
+
+  // Mouse wheel for zooming
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -39,41 +83,44 @@ export const EditorView = () => {
       if (e.ctrlKey) {
         e.preventDefault();
         // Zooming
-        const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1;
-        let newZoom = Math.max(0.1, Math.min(3, pageData.zoom + zoomDelta));
+        // Zooming smoothly based on deltaY magnitude
+        const zoomFactor = Math.pow(0.999, e.deltaY);
+        let newZoom = Math.max(0.1, Math.min(3, pageData.zoom * zoomFactor));
         canvasStore.setZoom(docId, newZoom);
-      } else {
-        // Panning with trackpad or mouse wheel
-        canvasStore.setPan(docId, pageData.panX - e.deltaX, pageData.panY - e.deltaY);
+        
+        setShowZoomOverlay(true);
+        if (zoomTimer.current) clearTimeout(zoomTimer.current);
+        zoomTimer.current = setTimeout(() => setShowZoomOverlay(false), 1500);
       }
     };
 
     viewport.addEventListener('wheel', handleWheel, { passive: false });
     return () => viewport.removeEventListener('wheel', handleWheel);
-  }, [docId, pageData.zoom, pageData.panX, pageData.panY, canvasStore]);
+  }, [docId, pageData.zoom, canvasStore]);
 
-  // Middle click panning
+  // Middle click or Alt panning
   const handleMouseDown = (e: React.MouseEvent) => {
     // If we are in 'pan' tool, left click also pans
     const isPanClick = e.button === 1 || (e.button === 0 && e.altKey) || (canvasStore.drawTool === 'pan' && e.button === 0);
     
-    if (isPanClick) {
+    if (isPanClick && viewportRef.current) {
       e.preventDefault();
       setIsPanning(true);
       panStart.current = {
         x: e.clientX,
         y: e.clientY,
-        initialPanX: pageData.panX,
-        initialPanY: pageData.panY,
+        initialScrollLeft: viewportRef.current.scrollLeft,
+        initialScrollTop: viewportRef.current.scrollTop,
       };
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isPanning) {
+    if (isPanning && viewportRef.current) {
       const dx = e.clientX - panStart.current.x;
       const dy = e.clientY - panStart.current.y;
-      canvasStore.setPan(docId, panStart.current.initialPanX + dx, panStart.current.initialPanY + dy);
+      viewportRef.current.scrollLeft = panStart.current.initialScrollLeft - dx;
+      viewportRef.current.scrollTop = panStart.current.initialScrollTop - dy;
     }
   };
 
@@ -83,7 +130,7 @@ export const EditorView = () => {
 
   // Touch panning
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
+    if (e.touches.length === 1 && viewportRef.current) {
       // Don't pan if we are in drawing mode (unless it's 'pan' or 'type')
       if (canvasStore.drawTool !== 'type' && canvasStore.drawTool !== 'pan' && canvasStore.drawTool !== 'lasso') return;
 
@@ -91,17 +138,18 @@ export const EditorView = () => {
       panStart.current = {
         x: e.touches[0].clientX,
         y: e.touches[0].clientY,
-        initialPanX: pageData.panX,
-        initialPanY: pageData.panY,
+        initialScrollLeft: viewportRef.current.scrollLeft,
+        initialScrollTop: viewportRef.current.scrollTop,
       };
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (isPanning && e.touches.length === 1) {
+    if (isPanning && e.touches.length === 1 && viewportRef.current) {
       const dx = e.touches[0].clientX - panStart.current.x;
       const dy = e.touches[0].clientY - panStart.current.y;
-      canvasStore.setPan(docId, panStart.current.initialPanX + dx, panStart.current.initialPanY + dy);
+      viewportRef.current.scrollLeft = panStart.current.initialScrollLeft - dx;
+      viewportRef.current.scrollTop = panStart.current.initialScrollTop - dy;
     }
   };
 
@@ -109,17 +157,46 @@ export const EditorView = () => {
     setIsPanning(false);
   };
 
+  // Keyboard undo/redo for workspace
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      // Skip if user is actively typing in a text field or editable element
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+      
+      if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        canvasStore.undo(docId);
+      } else if (e.ctrlKey && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        canvasStore.redo(docId);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [docId, canvasStore]);
+
   // Click to create note
   const handleCanvasClick = (e: React.MouseEvent) => {
     if (isPanning) return;
     if (canvasStore.drawTool !== 'type') return; // Don't create text boxes while using drawing tools
     
-    // Calculate click pos relative to canvas origin, factoring in zoom and pan
+    // Calculate click pos relative to canvas origin, factoring in zoom and native scroll
     const rect = viewportRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect || !viewportRef.current) return;
 
-    const x = (e.clientX - rect.left - pageData.panX) / pageData.zoom;
-    const y = (e.clientY - rect.top - pageData.panY) / pageData.zoom;
+    const scrollLeft = viewportRef.current.scrollLeft;
+    const scrollTop = viewportRef.current.scrollTop;
+
+    // The surface itself might have a top/left offset if paperSize is NOT auto, e.g. 8px (2mm)
+    const offsetX = pageData.paperSize === 'auto' ? 0 : 8;
+    const offsetY = pageData.paperSize === 'auto' ? 0 : 8;
+
+    const x = (e.clientX - rect.left + scrollLeft - offsetX) / pageData.zoom;
+    const y = (e.clientY - rect.top + scrollTop - offsetY) / pageData.zoom;
 
     canvasStore.addContainer(docId, x, y);
   };
@@ -148,8 +225,52 @@ export const EditorView = () => {
       backgroundColor: pageData.pageColor || '#ffffff',
       backgroundImage,
       backgroundSize,
-      backgroundPosition: `${pageData.panX}px ${pageData.panY}px`,
+      backgroundPosition: `0px 0px`, // Scrollbars handle panning now
     };
+  };
+
+  const renderBackgroundPages = () => {
+    if (pageData.paperSize === 'auto') return null;
+    const pW = pageData.paperSize === 'a4' ? 794 : pageData.paperSize === 'a3' ? 1123 : 816;
+    const pH = pageData.paperSize === 'a4' ? 1123 : pageData.paperSize === 'a3' ? 1587 : 1056;
+    const cols = canvasBounds.width / pW;
+    const rows = canvasBounds.height / pH;
+    
+    const pages = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const pageNumber = r * cols + c + 1;
+        pages.push(
+          <div
+            key={`${r}-${c}`}
+            className="canvas-bg-page"
+            data-html2canvas-ignore="true" // Ignore during print so it doesn't show up in the pdf/image
+            style={{
+              position: 'absolute',
+              top: r * pH,
+              left: c * pW,
+              width: pW,
+              height: pH,
+              backgroundColor: '#ffffff',
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+              borderBottom: '1px solid #e5e7eb', 
+              borderRight: '1px solid #e5e7eb',
+              zIndex: -1, 
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+              paddingBottom: '20px',
+              color: '#9ca3af',
+              fontSize: '14px',
+              boxSizing: 'border-box'
+            }}
+          >
+            Trang {pageNumber}
+          </div>
+        );
+      }
+    }
+    return pages;
   };
 
   return (
@@ -158,7 +279,7 @@ export const EditorView = () => {
       className="editor-scroll-area"
       style={{ 
         flex: 1, 
-        overflow: 'hidden', 
+        overflow: 'auto', 
         position: 'relative',
         cursor: isPanning ? 'grabbing' : 'text',
         ...getBackgroundStyles()
@@ -176,20 +297,23 @@ export const EditorView = () => {
       <div 
         className="infinite-canvas-surface"
         style={{
-          position: 'absolute',
-          top: pageData.paperSize && pageData.paperSize !== 'auto' ? '40px' : 0,
-          left: pageData.paperSize && pageData.paperSize !== 'auto' ? '40px' : 0,
+          position: pageData.paperSize === 'auto' ? 'absolute' : 'relative',
+          marginTop: pageData.paperSize && pageData.paperSize !== 'auto' ? '8px' : 0,
+          marginLeft: pageData.paperSize && pageData.paperSize !== 'auto' ? '8px' : 0,
+          marginBottom: pageData.paperSize && pageData.paperSize !== 'auto' ? '40px' : 0,
           transformOrigin: '0 0',
-          transform: `translate(${pageData.panX}px, ${pageData.panY}px) scale(${pageData.zoom})`,
-          width: pageData.paperSize === 'a4' ? '794px' : pageData.paperSize === 'a3' ? '1123px' : pageData.paperSize === 'letter' ? '816px' : '10000px',
-          height: pageData.paperSize === 'a4' ? '1123px' : pageData.paperSize === 'a3' ? '1587px' : pageData.paperSize === 'letter' ? '1056px' : '10000px',
-          backgroundColor: pageData.paperSize && pageData.paperSize !== 'auto' ? '#ffffff' : 'transparent',
-          boxShadow: pageData.paperSize && pageData.paperSize !== 'auto' ? '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' : 'none',
+          transform: `scale(${pageData.zoom})`,
+          width: pageData.paperSize === 'auto' ? '10000px' : `${canvasBounds.width}px`,
+          height: pageData.paperSize === 'auto' ? '10000px' : `${canvasBounds.height}px`,
+          backgroundColor: 'transparent',
+          boxShadow: 'none',
         }}
       >
+        {renderBackgroundPages()}
+        
         <PageTitleBlock 
           title={activeNode.title} 
-          createdAt={Date.now()} // Replace with actual created date later
+          createdAt={Date.now()} 
           onTitleChange={(newTitle) => {
             useTreeStore.getState().renameNode(activeNode.id, newTitle);
           }} 
@@ -201,6 +325,26 @@ export const EditorView = () => {
           <NoteContainer key={c.id} docId={docId} containerId={c.id} />
         ))}
       </div>
+      {showZoomOverlay && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: 'rgba(17, 24, 39, 0.8)',
+          color: 'white',
+          padding: '8px 16px',
+          borderRadius: '20px',
+          fontSize: '14px',
+          fontWeight: 600,
+          zIndex: 1000,
+          pointerEvents: 'none',
+          boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+          backdropFilter: 'blur(4px)',
+        }}>
+          Thu phóng {Math.round(pageData.zoom * 100)}%
+        </div>
+      )}
     </div>
   );
 };

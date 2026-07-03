@@ -61,6 +61,7 @@ interface TreeState {
   hiddenIds: Set<string>;
   pinnedIds: Set<string>;
   recentIds: string[];
+  lastAccessedAt: Record<string, number>;
   actionLog: { 
     id: string; 
     timestamp: number; 
@@ -111,6 +112,7 @@ interface TreeState {
 
   togglePin: (id: string) => void;
   addRecentView: (id: string) => void;
+  autoCollapseOldFolders: () => void;
 
   openSchedulePinModal: (ids: string[]) => void;
   closeSchedulePinModal: () => void;
@@ -294,6 +296,23 @@ const getFullNodePath = (nodes: TreeNode[], targetId: string): string => {
   return path.join(', ');
 };
 
+const updateLastAccessedAt = (data: TreeNode[], currentLastAccessedAt: Record<string, number>, id: string) => {
+    const newLastAccessedAt = { ...(currentLastAccessedAt || {}) };
+    const now = Date.now();
+    let currentId = id;
+    newLastAccessedAt[currentId] = now;
+    while (true) {
+      const parent = getParentNode(data, currentId);
+      if (parent) {
+        newLastAccessedAt[parent.id] = now;
+        currentId = parent.id;
+      } else {
+        break;
+      }
+    }
+    return newLastAccessedAt;
+};
+
 export const useTreeStore = create<TreeState>()(
   persist(
     (set, get) => ({
@@ -309,6 +328,7 @@ export const useTreeStore = create<TreeState>()(
   pinnedIds: new Set<string>(),
   lockedIds: new Set<string>(),
   recentIds: [],
+  lastAccessedAt: {},
   actionLog: [],
 
   editingNodeId: null,
@@ -333,18 +353,26 @@ export const useTreeStore = create<TreeState>()(
       newExpanded.add(id);
       newHighlightedBranchId = id;
     }
-    return { expandedIds: newExpanded, highlightedBranchId: newHighlightedBranchId };
+    return { 
+      expandedIds: newExpanded, 
+      highlightedBranchId: newHighlightedBranchId,
+      lastAccessedAt: updateLastAccessedAt(state.data, state.lastAccessedAt, id)
+    };
   }),
 
-  setFocus: (id) => set({ focusedId: id }),
+  setFocus: (id) => set((state) => ({ 
+    focusedId: id,
+    lastAccessedAt: updateLastAccessedAt(state.data, state.lastAccessedAt, id)
+  })),
   setSelected: (id, multi) => set((state) => {
+    const newLastAccessed = updateLastAccessedAt(state.data, state.lastAccessedAt, id);
     if (multi) {
       const newSelected = new Set(state.selectedIds);
       if (newSelected.has(id)) newSelected.delete(id);
       else newSelected.add(id);
-      return { selectedIds: newSelected, anchorId: id };
+      return { selectedIds: newSelected, anchorId: id, lastAccessedAt: newLastAccessed };
     }
-    return { selectedIds: new Set([id]), anchorId: id };
+    return { selectedIds: new Set([id]), anchorId: id, lastAccessedAt: newLastAccessed };
   }),
   
   toggleLock: (id) => set((state) => {
@@ -500,6 +528,8 @@ export const useTreeStore = create<TreeState>()(
     let newRecent = [id, ...state.recentIds.filter(recentId => recentId !== id)];
     if (newRecent.length > 20) newRecent = newRecent.slice(0, 20);
     
+    const newLastAccessedAt = updateLastAccessedAt(state.data, state.lastAccessedAt, id);
+    
     // Auto add an action log for view
     const node = findNodeById(state.data, id);
     const title = node ? node.title : 'Unknown Note';
@@ -513,7 +543,31 @@ export const useTreeStore = create<TreeState>()(
     }, ...state.actionLog];
     if (newLog.length > 30) newLog = newLog.slice(0, 30);
 
-    return { recentIds: newRecent, actionLog: newLog };
+    return { recentIds: newRecent, actionLog: newLog, lastAccessedAt: newLastAccessedAt };
+  }),
+
+  autoCollapseOldFolders: () => set((state) => {
+    const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const newExpandedIds = new Set(state.expandedIds);
+    let changed = false;
+    const newLastAccessed = { ...(state.lastAccessedAt || {}) };
+    
+    state.expandedIds.forEach(id => {
+      const lastAccessed = newLastAccessed[id];
+      if (!lastAccessed) {
+        newLastAccessed[id] = now;
+        changed = true;
+      } else if (now - lastAccessed > THREE_DAYS) {
+        newExpandedIds.delete(id);
+        changed = true;
+      }
+    });
+    
+    if (changed) {
+      return { expandedIds: newExpandedIds, lastAccessedAt: newLastAccessed };
+    }
+    return {};
   }),
 
   restoreSnapshot: (snapshot, mode, targetDocId) => set((state) => {
@@ -575,7 +629,8 @@ export const useTreeStore = create<TreeState>()(
       editingNodeId: newId,
       selectedIds: new Set([newId]),
       anchorId: newId,
-      actionLog: newLog
+      actionLog: newLog,
+      lastAccessedAt: updateLastAccessedAt(state.data, state.lastAccessedAt, newId)
     };
   }),
 
@@ -612,7 +667,8 @@ export const useTreeStore = create<TreeState>()(
       editingNodeId: newId,
       selectedIds: new Set([newId]),
       anchorId: newId,
-      actionLog: newLog
+      actionLog: newLog,
+      lastAccessedAt: updateLastAccessedAt(state.data, state.lastAccessedAt, newId)
     };
   }),
 

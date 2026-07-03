@@ -4,6 +4,16 @@ env.allowLocalModels = false;
 env.useBrowserCache = true;
 
 let transcriber: any = null;
+
+// Suppress harmless Cache API network error warnings caused by Vite dev server chunking
+const originalWarn = console.warn;
+console.warn = (...args) => {
+    if (args[0] && typeof args[0] === 'string' && args[0].includes('Failed to cache ort-wasm')) {
+        return; // Ignore
+    }
+    originalWarn(...args);
+};
+
 let isInitializing = false;
 let initPromise: Promise<void> | null = null;
 

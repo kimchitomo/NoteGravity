@@ -8,6 +8,40 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      window.addEventListener('error', function(event) {
+        const errorDiv = document.createElement('div');
+        errorDiv.style.position = 'fixed';
+        errorDiv.style.top = '0';
+        errorDiv.style.left = '0';
+        errorDiv.style.width = '100vw';
+        errorDiv.style.height = '100vh';
+        errorDiv.style.backgroundColor = 'rgba(255, 0, 0, 0.9)';
+        errorDiv.style.color = 'white';
+        errorDiv.style.padding = '2rem';
+        errorDiv.style.zIndex = '9999';
+        errorDiv.style.fontFamily = 'monospace';
+        errorDiv.style.whiteSpace = 'pre-wrap';
+        errorDiv.innerHTML = '<h2>App Crashed!</h2><p>' + event.error?.message + '</p><pre>' + event.error?.stack + '</pre>';
+        document.body.appendChild(errorDiv);
+      });
+      window.addEventListener('unhandledrejection', function(event) {
+        const errorDiv = document.createElement('div');
+        errorDiv.style.position = 'fixed';
+        errorDiv.style.top = '0';
+        errorDiv.style.left = '0';
+        errorDiv.style.width = '100vw';
+        errorDiv.style.height = '100vh';
+        errorDiv.style.backgroundColor = 'rgba(255, 0, 0, 0.9)';
+        errorDiv.style.color = 'white';
+        errorDiv.style.padding = '2rem';
+        errorDiv.style.zIndex = '9999';
+        errorDiv.style.fontFamily = 'monospace';
+        errorDiv.style.whiteSpace = 'pre-wrap';
+        errorDiv.innerHTML = '<h2>Unhandled Promise Rejection!</h2><p>' + event.reason + '</p>';
+        document.body.appendChild(errorDiv);
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

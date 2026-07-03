@@ -39,6 +39,7 @@ export const NoteContainer: React.FC<NoteContainerProps> = ({ docId, containerId
   // Handle Dragging
   const handleDragStart = (e: React.MouseEvent) => {
     e.stopPropagation();
+    useCanvasStore.getState().saveHistory(docId);
     setIsDragging(true);
     startDragPos.current = {
       x: e.clientX,
@@ -52,6 +53,7 @@ export const NoteContainer: React.FC<NoteContainerProps> = ({ docId, containerId
   // Handle Resizing
   const handleResizeStart = (e: React.MouseEvent) => {
     e.stopPropagation();
+    useCanvasStore.getState().saveHistory(docId);
     setIsResizing(true);
     startResizePos.current = {
       x: e.clientX,

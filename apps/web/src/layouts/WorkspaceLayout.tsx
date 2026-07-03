@@ -1,6 +1,6 @@
 import React from 'react';
 import { Sidebar } from '../components/Sidebar';
-import { PaneGrid } from '../components/workspace/PaneGrid';
+import { EditorView } from '../components/workspace/EditorView';
 
 export const WorkspaceLayout = () => {
   return (
@@ -9,7 +9,7 @@ export const WorkspaceLayout = () => {
       <Sidebar />
 
       {/* Main Workspace Area */}
-      <PaneGrid />
+      <EditorView />
     </div>
   );
 };

@@ -34,7 +34,7 @@ const findParentNode = (nodes: any[], targetId: string, parent: any = null): any
 
 const ShortcutItem: React.FC<{ node: any, isPinned?: boolean }> = ({ node, isPinned }) => {
   const { togglePin, selectedIds, setSelected, data, expandedIds, toggleExpand, addRecentView, setFocus } = useTreeStore();
-  const { addTabToPane, setPreviewTab, activePaneId, panes } = useWorkspaceStore();
+  const { setActiveNoteId } = useWorkspaceStore();
   const [isHovered, setIsHovered] = useState(false);
   const [tooltipPos, setTooltipPos] = useState<{ top: number, left: number } | null>(null);
   
@@ -77,19 +77,13 @@ const ShortcutItem: React.FC<{ node: any, isPinned?: boolean }> = ({ node, isPin
         const wasAlreadySelected = selectedIds.has(node.id);
         setSelected(node.id, multi);
         if (node.type === 'note' && !multi) {
-          const targetPaneId = activePaneId || panes[0].id;
-          if (wasAlreadySelected) {
-            addTabToPane(targetPaneId, { id: node.id, title: node.title });
-          } else {
-            setPreviewTab(targetPaneId, { id: node.id, title: node.title });
-          }
+          setActiveNoteId(node.id);
           addRecentView(node.id);
         }
       }}
       onDoubleClick={() => {
         if (node.type === 'note') {
-          const targetPaneId = activePaneId || panes[0].id;
-          addTabToPane(targetPaneId, { id: node.id, title: node.title });
+          setActiveNoteId(node.id);
           addRecentView(node.id);
         }
       }}
@@ -103,10 +97,8 @@ const ShortcutItem: React.FC<{ node: any, isPinned?: boolean }> = ({ node, isPin
         const rect = e.currentTarget.getBoundingClientRect();
         setTooltipPos({ top: rect.top, left: rect.right + 10 });
         if (!selectedIds.has(node.id)) e.currentTarget.style.backgroundColor = 'var(--hover-bg, #fafafa)';
-        if (node.type === 'note') {
-          const targetPaneId = activePaneId || panes[0].id;
-          setPreviewTab(targetPaneId, { id: node.id, title: node.title });
-        }
+        // No longer using preview tabs on hover
+
       }}
       onMouseLeave={(e) => {
         if (!selectedIds.has(node.id)) e.currentTarget.style.backgroundColor = 'transparent';
@@ -222,8 +214,7 @@ export const Sidebar = () => {
             const node = findNodeById(data, focusedId);
             if (node && node.type === 'note') {
               const workspaceState = useWorkspaceStore.getState();
-              const targetPaneId = workspaceState.activePaneId || workspaceState.panes[0].id;
-              workspaceState.addTabToPane(targetPaneId, { id: node.id, title: node.title });
+              workspaceState.setActiveNoteId(node.id);
               useTreeStore.getState().addRecentView(node.id);
             }
           }
@@ -240,8 +231,7 @@ export const Sidebar = () => {
       const node = findNodeById(data, focusedId);
       if (node && node.type === 'note') {
         const workspaceState = useWorkspaceStore.getState();
-        const targetPaneId = workspaceState.activePaneId || workspaceState.panes[0].id;
-        workspaceState.setPreviewTab(targetPaneId, { id: node.id, title: node.title });
+        workspaceState.setActiveNoteId(node.id);
       }
     }
   }, [focusedId, data]);

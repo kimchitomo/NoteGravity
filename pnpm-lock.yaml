@@ -220,9 +220,6 @@ importers:
       '@tiptap/suggestion':
         specifier: ^2.1.12
         version: 2.27.2(@tiptap/core@2.27.2)(@tiptap/pm@2.27.2)
-      '@tldraw/tldraw':
-        specifier: ^2.0.0
-        version: 2.4.6(@types/react-dom@18.3.7)(@types/react@18.3.31)(react-dom@18.3.1)(react@18.2.0)
       lowlight:
         specifier: ^2.9.0
         version: 2.9.0
@@ -232,6 +229,9 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.2.0
+      tldraw:
+        specifier: ^2.0.0
+        version: 2.4.6(@types/react-dom@18.3.7)(@types/react@18.3.31)(react-dom@18.3.1)(react@18.2.0)
       y-websocket:
         specifier: ^1.5.0
         version: 1.5.4(yjs@13.6.31)
@@ -5044,20 +5044,6 @@ packages:
       lodash.isequal: 4.5.0
       nanoid: 4.0.2
       react: 18.2.0
-    dev: false
-
-  /@tldraw/tldraw@2.4.6(@types/react-dom@18.3.7)(@types/react@18.3.31)(react-dom@18.3.1)(react@18.2.0):
-    resolution: {integrity: sha512-QLZ8P76LME470BIz+m5SHvAWn8wHPHjAT2KsMWfBlwRLtuT240dr5DdKlXvKNZbzvOZN2TyZFGqp0KqnDLH0XA==}
-    peerDependencies:
-      react: ^18
-      react-dom: ^18
-    dependencies:
-      react: 18.2.0
-      react-dom: 18.3.1(react@18.2.0)
-      tldraw: 2.4.6(@types/react-dom@18.3.7)(@types/react@18.3.31)(react-dom@18.3.1)(react@18.2.0)
-    transitivePeerDependencies:
-      - '@types/react'
-      - '@types/react-dom'
     dev: false
 
   /@tldraw/tlschema@2.4.6(react@18.2.0):

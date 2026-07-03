@@ -12,7 +12,7 @@ interface TreeItemProps {
 
 export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlighted = false }) => {
   const { expandedIds, focusedId, selectedIds, toggleExpand, setFocus, setSelected, selectRange, openContextMenu, hiddenIds, editingNodeId, renameNode, setEditingNodeId, moveNodesTo, moveNodesBefore, moveNodesAfter, addNode, pinnedIds, togglePin, addRecentView, highlightedBranchId, lockedIds, toggleLock, offlineAsrDevice, setOfflineAsrDevice } = useTreeStore();
-  const { addTabToPane, setPreviewTab, activePaneId, panes } = useWorkspaceStore();
+  const { setActiveNoteId } = useWorkspaceStore();
   
   const isHighlightRoot = highlightedBranchId === node.id;
   const shouldHighlight = isHighlightRoot || isHighlighted;
@@ -66,12 +66,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
     }
 
     if (node.type === 'note' && !multi && !shift) {
-      const targetPaneId = activePaneId || panes[0].id;
-      if (wasAlreadySelected) {
-        addTabToPane(targetPaneId, { id: node.id, title: node.title });
-      } else {
-        setPreviewTab(targetPaneId, { id: node.id, title: node.title });
-      }
+      setActiveNoteId(node.id);
       addRecentView(node.id);
     }
 
@@ -204,8 +199,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
             return;
           }
           if (node.type === 'note') {
-            const targetPaneId = activePaneId || panes[0].id;
-            addTabToPane(targetPaneId, { id: node.id, title: node.title });
+            setActiveNoteId(node.id);
           } else {
             setEditingNodeId(node.id); 
           }
@@ -243,10 +237,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
             e.currentTarget.style.backgroundColor = shouldHighlight ? 'rgba(0, 102, 204, 0.08)' : 'var(--hover-bg, #fafafa)';
           }
           
-          if (node.type === 'note') {
-            const targetPaneId = activePaneId || panes[0].id;
-            setPreviewTab(targetPaneId, { id: node.id, title: node.title });
-          }
+          // No longer using preview tabs on hover in simplified workspace
         }}
         onMouseLeave={(e) => {
           setIsHovered(false);

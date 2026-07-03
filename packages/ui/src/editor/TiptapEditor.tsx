@@ -145,17 +145,6 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
 
   return (
     <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: 'var(--bg-color)' }}>
-      {/* Editor Header / Metadata */}
-      <div className="editor-header" style={{ padding: '8px 16px', fontSize: '12px', color: '#666', borderBottom: '1px solid #eaeaea', backgroundColor: '#f9f9f9' }}>
-        <div className="editor-date">
-          <span>🗓 Created: {createdAt ? new Date(createdAt).toLocaleString('vi-VN') : new Date().toLocaleDateString('vi-VN')}</span>
-          <span style={{ margin: '0 8px', color: '#ccc' }}>|</span>
-          <span>⏱ Updated: {updatedAt ? new Date(updatedAt).toLocaleString('vi-VN') : new Date().toLocaleTimeString('vi-VN')}</span>
-        </div>
-      </div>
-
-      {/* Main Ribbon Toolbar */}
-      {editor && <MainToolbar editor={editor} />}
 
       {/* Editor Content Area */}
       <div className="editor-scroll-area" style={{ display: 'flex', flexDirection: 'row', flex: 1, overflow: 'hidden' }}>
@@ -185,11 +174,7 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
           )}
           <EditorContent editor={editor} />
         </div>
-        
-        {/* Table of Contents Sidebar */}
-        <div style={{ width: '200px', borderLeft: '1px solid #eaeaea', backgroundColor: '#fafafa', overflowY: 'auto' }}>
-          {editor && <TableOfContents editor={editor} headings={headings} />}
-        </div>
+
       </div>
     </div>
   );
@@ -210,13 +195,7 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = (props) => {
     const saved = localStorage.getItem(`note-content-${props.docId || 'notegravity-doc-1'}`);
     return (
       <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: 'var(--bg-color)' }}>
-        <div className="editor-header" style={{ padding: '8px 16px', fontSize: '12px', color: '#666', borderBottom: '1px solid #eaeaea', backgroundColor: '#f9f9f9' }}>
-          <div className="editor-date">
-            <span>🗓 Created: {props.createdAt ? new Date(props.createdAt).toLocaleString('vi-VN') : new Date().toLocaleDateString('vi-VN')}</span>
-            <span style={{ margin: '0 8px', color: '#ccc' }}>|</span>
-            <span>⏱ Updated: {props.updatedAt ? new Date(props.updatedAt).toLocaleString('vi-VN') : new Date().toLocaleTimeString('vi-VN')}</span>
-          </div>
-        </div>
+
         <div className="editor-scroll-area" style={{ display: 'flex', flexDirection: 'row', flex: 1, overflow: 'hidden' }}>
           <div 
             className="editor-document tiptap ProseMirror" 

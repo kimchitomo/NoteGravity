@@ -1,6 +1,6 @@
 import React from 'react';
-import { Tldraw } from '@tldraw/tldraw';
-import '@tldraw/tldraw/tldraw.css';
+import { Tldraw } from 'tldraw';
+import 'tldraw/tldraw.css';
 
 interface TLDrawCanvasProps {
   initialData?: any;

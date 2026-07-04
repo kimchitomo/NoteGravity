@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { TreeItem } from './TreeItem';
 import { useTreeStore } from '../store/useTreeStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
+import { useCanvasStore } from '../store/useCanvasStore';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { SidebarContextMenu } from './sidebar/SidebarContextMenu';
 import { EmailModal } from './modals/EmailModal';
@@ -186,6 +187,40 @@ export const Sidebar = () => {
       // Only handle if focus is inside sidebar
       if (!sidebarRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return;
       
+      if (e.ctrlKey && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        const state = useTreeStore.getState();
+        const targetIds = state.selectedIds.size > 0 ? Array.from(state.selectedIds) : (focusedId ? [focusedId] : []);
+        if (targetIds.length > 0) {
+           state.copyToClipboard(targetIds, 'copy');
+        }
+        return;
+      }
+
+      if (e.ctrlKey && e.key.toLowerCase() === 'x') {
+        e.preventDefault();
+        const state = useTreeStore.getState();
+        const targetIds = state.selectedIds.size > 0 ? Array.from(state.selectedIds) : (focusedId ? [focusedId] : []);
+        if (targetIds.length > 0) {
+           const hasLocked = targetIds.some(id => state.lockedIds.has(id));
+           if (hasLocked) {
+              alert("Một hoặc nhiều mục đang bị khóa. Hãy mở khóa trước khi cắt!");
+           } else {
+              state.copyToClipboard(targetIds, 'cut');
+           }
+        }
+        return;
+      }
+
+      if (e.ctrlKey && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        const state = useTreeStore.getState();
+        if (state.clipboard) {
+           state.pasteFromClipboard(focusedId || null);
+        }
+        return;
+      }
+      
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
@@ -209,6 +244,55 @@ export const Sidebar = () => {
             useTreeStore.getState().setEditingNodeId(focusedId);
           }
           break;
+        case 'F7':
+          e.preventDefault();
+          if (focusedId) {
+            useTreeStore.getState().addNode(focusedId, 'note', 'Ghi chú mới');
+          } else {
+            useTreeStore.getState().addRootNode('notebook', 'Sổ tay mới');
+          }
+          break;
+        case 'Delete':
+          e.preventDefault();
+          const state = useTreeStore.getState();
+          const targetIds = state.selectedIds.size > 0 ? Array.from(state.selectedIds) : (focusedId ? [focusedId] : []);
+          if (targetIds.length > 0) {
+             const hasLocked = targetIds.some(id => state.lockedIds.has(id));
+             if (hasLocked) {
+                alert("Một hoặc nhiều mục đang bị khóa. Hãy mở khóa trước khi xóa!");
+             } else {
+                targetIds.forEach(id => state.deleteNode(id));
+             }
+          }
+          break;
+        case 'Tab':
+          e.preventDefault();
+          if (focusedId) {
+             const workspaceState = useWorkspaceStore.getState();
+             if (workspaceState.activeNoteId !== focusedId) {
+               workspaceState.setActiveNoteId(focusedId);
+               useTreeStore.getState().addRecentView(focusedId);
+             }
+             
+             const canvasStore = useCanvasStore.getState();
+             const pageData = canvasStore.getPageData(focusedId);
+             let containerIdToFocus = null;
+             
+             if (pageData.containers && pageData.containers.length > 0) {
+               const sorted = [...pageData.containers].sort((a, b) => {
+                 if (Math.abs(a.y - b.y) < 10) return a.x - b.x;
+                 return a.y - b.y;
+               });
+               containerIdToFocus = sorted[0].id;
+             } else {
+               containerIdToFocus = canvasStore.addContainer(focusedId, 12, 72);
+             }
+             
+             setTimeout(() => {
+               window.dispatchEvent(new CustomEvent('focus-note-container', { detail: { id: containerIdToFocus } }));
+             }, 100);
+          }
+          break;
         case 'Enter':
         case ' ':
           e.preventDefault();
@@ -226,7 +310,20 @@ export const Sidebar = () => {
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    
+    const handleFocusNode = (e: any) => {
+      const id = e.detail?.id;
+      if (id) {
+        const el = sidebarRef.current?.querySelector(`[data-node-id="${id}"]`) as HTMLElement;
+        if (el) el.focus();
+      }
+    };
+    window.addEventListener('focus-sidebar-node', handleFocusNode);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('focus-sidebar-node', handleFocusNode);
+    };
   }, [moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected]);
 
   useEffect(() => {
@@ -301,7 +398,7 @@ export const Sidebar = () => {
           <div style={{ display: 'flex', gap: '8px' }}>
             <button 
               onClick={() => addRootNode('notebook', 'Sổ tay mới')}
-              title="Thêm Sổ tay"
+              title="Thêm Sổ tay (F7)"
               style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', color: 'var(--text-color)', opacity: 0.7 }}
             >
               <Plus size={16} />

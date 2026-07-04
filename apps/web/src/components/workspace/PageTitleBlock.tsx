@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Mic } from 'lucide-react';
 import { SpeechRecognitionModal } from '../modals/SpeechRecognitionModal';
 
@@ -10,6 +10,8 @@ interface PageTitleBlockProps {
 
 export const PageTitleBlock: React.FC<PageTitleBlockProps> = ({ title, createdAt, onTitleChange }) => {
   const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [speechCursorPos, setSpeechCursorPos] = useState<{ start: number, end: number } | undefined>(undefined);
   
   const dateStr = createdAt ? new Date(createdAt).toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : new Date().toLocaleDateString('vi-VN');
   const timeStr = createdAt ? new Date(createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString('vi-VN');
@@ -30,7 +32,17 @@ export const PageTitleBlock: React.FC<PageTitleBlockProps> = ({ title, createdAt
     >
       <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '8px' }}>
         <button
-          onClick={() => setShowVoiceModal(true)}
+          onClick={() => {
+            if (inputRef.current) {
+              setSpeechCursorPos({
+                start: inputRef.current.selectionStart || 0,
+                end: inputRef.current.selectionEnd || 0
+              });
+            } else {
+              setSpeechCursorPos(undefined);
+            }
+            setShowVoiceModal(true);
+          }}
           style={{
             background: 'none',
             border: 'none',
@@ -42,16 +54,31 @@ export const PageTitleBlock: React.FC<PageTitleBlockProps> = ({ title, createdAt
             justifyContent: 'center',
             borderRadius: '4px'
           }}
-          title="Nhập tiêu đề bằng giọng nói"
+          title="Nhập tiêu đề bằng giọng nói (F3)"
           onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
           onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
         >
           <Mic size={18} />
         </button>
         <input
+          ref={inputRef}
           type="text"
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'F3') {
+              e.preventDefault();
+              if (inputRef.current) {
+                setSpeechCursorPos({
+                  start: inputRef.current.selectionStart || 0,
+                  end: inputRef.current.selectionEnd || 0
+                });
+              } else {
+                setSpeechCursorPos(undefined);
+              }
+              setShowVoiceModal(true);
+            }
+          }}
           placeholder="Page Title"
           style={{
             fontSize: '16px',
@@ -81,6 +108,7 @@ export const PageTitleBlock: React.FC<PageTitleBlockProps> = ({ title, createdAt
       {showVoiceModal && (
         <SpeechRecognitionModal
           initialText={title}
+          initialCursorPosition={speechCursorPos}
           onClose={() => setShowVoiceModal(false)}
           onApply={(newText) => {
             onTitleChange(newText);

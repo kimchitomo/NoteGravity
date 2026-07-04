@@ -59,7 +59,7 @@ export const TitleBar: React.FC = () => {
               marginLeft: '8px'
             }}
           />
-          <button className="qat-btn" title="Voice Search" style={{ padding: '2px' }}>
+          <button className="qat-btn" title="Tìm kiếm bằng giọng nói (F3)" style={{ padding: '2px' }}>
             <Mic size={14} color="#3b82f6" />
           </button>
         </div>

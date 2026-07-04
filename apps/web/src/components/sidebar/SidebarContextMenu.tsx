@@ -171,9 +171,9 @@ export const SidebarContextMenu = () => {
         <MenuItem icon={EyeOff} label="Ẩn" action="hide" />
       )}
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
-      <MenuItem icon={Copy} label="Copy" action="copy" />
-      <MenuItem icon={Scissors} label="Cut" action="cut" />
-      <MenuItem icon={Clipboard} label="Paste" action="paste" disabled={!clipboard} />
+      <MenuItem icon={Copy} label="Copy (Ctrl+C)" action="copy" />
+      <MenuItem icon={Scissors} label="Cut (Ctrl+X)" action="cut" />
+      <MenuItem icon={Clipboard} label="Paste (Ctrl+V)" action="paste" disabled={!clipboard} />
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
       <MenuItem icon={MoveRight} label="Di chuyển tới..." action="move_to" />
       <MenuItem icon={Files} label="Nhân bản" action="duplicate" />
@@ -186,7 +186,7 @@ export const SidebarContextMenu = () => {
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
       <MenuItem icon={Mail} label="Gửi qua Email" action="email" />
       <div style={{ height: '1px', backgroundColor: '#eaeaea', margin: '4px 0' }} />
-      <MenuItem icon={Trash2} label="Xóa" action="delete" danger />
+      <MenuItem icon={Trash2} label="Xóa (Delete)" action="delete" danger />
     </div>,
     document.body
   );

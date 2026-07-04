@@ -9,7 +9,11 @@ import { CanvasDrawLayer } from './CanvasDrawLayer';
 export const EditorView = () => {
   const { activeNoteId } = useWorkspaceStore();
   const { data } = useTreeStore();
-  const canvasStore = useCanvasStore();
+  const setZoom = useCanvasStore(state => state.setZoom);
+  const undo = useCanvasStore(state => state.undo);
+  const redo = useCanvasStore(state => state.redo);
+  const drawTool = useCanvasStore(state => state.drawTool);
+  const addContainer = useCanvasStore(state => state.addContainer);
   
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
@@ -30,7 +34,11 @@ export const EditorView = () => {
   };
   const activeNode = activeNoteId ? findNode(data, activeNoteId) : null;
   const docId = activeNoteId || 'default-doc';
-  const pageData = canvasStore.getPageData(docId);
+  const pageDataRaw = useCanvasStore(state => state.pages[docId]);
+  const pageData = React.useMemo(() => {
+    const defaults = { panX: 0, panY: 0, zoom: 1, pageColor: '#ffffff', gridPattern: 'none' as const, paperSize: 'a4' as const, containers: [], strokes: [], shapes: [] };
+    return pageDataRaw ? { ...defaults, ...pageDataRaw, shapes: pageDataRaw.shapes || [] } : defaults;
+  }, [pageDataRaw]);
 
   const [canvasBounds, setCanvasBounds] = useState({ width: 794, height: 1123 });
 
@@ -86,7 +94,7 @@ export const EditorView = () => {
         // Zooming smoothly based on deltaY magnitude
         const zoomFactor = Math.pow(0.999, e.deltaY);
         let newZoom = Math.max(0.1, Math.min(3, pageData.zoom * zoomFactor));
-        canvasStore.setZoom(docId, newZoom);
+        setZoom(docId, newZoom);
         
         setShowZoomOverlay(true);
         if (zoomTimer.current) clearTimeout(zoomTimer.current);
@@ -96,12 +104,12 @@ export const EditorView = () => {
 
     viewport.addEventListener('wheel', handleWheel, { passive: false });
     return () => viewport.removeEventListener('wheel', handleWheel);
-  }, [docId, pageData.zoom, canvasStore]);
+  }, [docId, pageData.zoom, setZoom]);
 
   // Middle click or Alt panning
   const handleMouseDown = (e: React.MouseEvent) => {
     // If we are in 'pan' tool, left click also pans
-    const isPanClick = e.button === 1 || (e.button === 0 && e.altKey) || (canvasStore.drawTool === 'pan' && e.button === 0);
+    const isPanClick = e.button === 1 || (e.button === 0 && e.altKey) || (drawTool === 'pan' && e.button === 0);
     
     if (isPanClick && viewportRef.current) {
       e.preventDefault();
@@ -132,7 +140,7 @@ export const EditorView = () => {
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 1 && viewportRef.current) {
       // Don't pan if we are in drawing mode (unless it's 'pan' or 'type')
-      if (canvasStore.drawTool !== 'type' && canvasStore.drawTool !== 'pan' && canvasStore.drawTool !== 'lasso') return;
+      if (drawTool !== 'type' && drawTool !== 'pan' && drawTool !== 'lasso') return;
 
       setIsPanning(true);
       panStart.current = {
@@ -168,21 +176,21 @@ export const EditorView = () => {
       
       if (e.ctrlKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        canvasStore.undo(docId);
+        undo(docId);
       } else if (e.ctrlKey && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        canvasStore.redo(docId);
+        redo(docId);
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [docId, canvasStore]);
+  }, [docId, undo, redo]);
 
   // Click to create note
   const handleCanvasClick = (e: React.MouseEvent) => {
     if (isPanning) return;
-    if (canvasStore.drawTool !== 'type') return; // Don't create text boxes while using drawing tools
+    if (drawTool !== 'type') return; // Don't create text boxes while using drawing tools
     
     // Calculate click pos relative to canvas origin, factoring in zoom and native scroll
     const rect = viewportRef.current?.getBoundingClientRect();
@@ -198,7 +206,7 @@ export const EditorView = () => {
     const x = (e.clientX - rect.left + scrollLeft - offsetX) / pageData.zoom;
     const y = (e.clientY - rect.top + scrollTop - offsetY) / pageData.zoom;
 
-    canvasStore.addContainer(docId, x, y);
+    addContainer(docId, x, y);
   };
 
   if (!activeNode) {

@@ -51,9 +51,10 @@ export interface TiptapEditorProps {
   onFocus?: (editor: any) => void;
   onContentChange?: () => void;
   autoWidth?: boolean;
+  autoFocus?: boolean;
 }
 
-const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-doc-1', createdAt, updatedAt, isLocked, onFocus, onContentChange, autoWidth }) => {
+const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-doc-1', createdAt, updatedAt, isLocked, onFocus, onContentChange, autoWidth, autoFocus }) => {
   const [headings, setHeadings] = useState<any[]>([]);
 
   // Chỉ khởi tạo 1 lần theo docId
@@ -119,7 +120,7 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
     },
     // Không dùng 'content' tĩnh khi dùng Collaboration
     // content: '<p>Bắt đầu nhập nội dung tại đây...</p>',
-    content: localStorage.getItem(`note-content-${docId}`) || '<p>Bắt đầu nhập nội dung tại đây...</p>',
+    content: localStorage.getItem(`note-content-${docId}`) || (autoFocus ? '<p></p>' : '<p>Bắt đầu nhập nội dung tại đây...</p>'),
   }, [docId]); // Re-create editor when docId changes
 
   useEffect(() => {
@@ -127,6 +128,14 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
       editor.setEditable(!isLocked);
     }
   }, [editor, isLocked]);
+
+  useEffect(() => {
+    if (editor && autoFocus) {
+      // Use a small timeout to ensure the DOM is ready
+      const t = setTimeout(() => editor.commands.focus('end'), 50);
+      return () => clearTimeout(t);
+    }
+  }, [editor, autoFocus]);
 
   // Listen for Time Travel (Undo) events
   useEffect(() => {
@@ -197,11 +206,13 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = (props) => {
 
   useEffect(() => {
     setShouldLoad(false);
+    // If autoFocus, load immediately; otherwise use delay to prevent lag during rapid hover
+    const delay = props.autoFocus ? 0 : 250;
     const timer = setTimeout(() => {
       setShouldLoad(true);
-    }, 250); // Delay loading heavy Tiptap instance to prevent lag during rapid hover
+    }, delay);
     return () => clearTimeout(timer);
-  }, [props.docId]);
+  }, [props.docId, props.autoFocus]);
 
   if (!shouldLoad) {
     const saved = localStorage.getItem(`note-content-${props.docId || 'notegravity-doc-1'}`);

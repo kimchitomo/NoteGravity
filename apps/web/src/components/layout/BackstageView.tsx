@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import html2canvas from 'html2canvas';
-import { ArrowLeft, Info, Printer, Share2, Download, Upload, Send, Settings, User, FileText, Smartphone, Mail, Cloud, Network, Wifi, Save } from 'lucide-react';
+import { ArrowLeft, Info, Printer, Share2, Download, Upload, Send, Settings, User, FileText, Smartphone, Mail, Cloud, Network, Wifi, Save, MessageSquare } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface BackstageViewProps {

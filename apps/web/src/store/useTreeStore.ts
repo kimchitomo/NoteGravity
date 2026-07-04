@@ -83,6 +83,8 @@ interface TreeState {
   schedulePinModalNodeIds: string[] | null;
   highlightedBranchId: string | null;
   lockedIds: Set<string>;
+  readIds: Set<string>;
+  deletedNodes: { node: TreeNode; parentId: string | null; deletedAt: number }[];
 
   pinSchedule: {
     items: PinScheduleItem[];
@@ -95,6 +97,9 @@ interface TreeState {
   toggleExpand: (id: string) => void;
   setFocus: (id: string) => void;
   toggleLock: (id: string) => void;
+  toggleRead: (id: string) => void;
+  restoreNode: (id: string) => void;
+  permanentlyDelete: (id: string) => void;
   selectRange: (id: string) => void;
   setSelected: (id: string, multi?: boolean) => void;
   openContextMenu: (id: string, x: number, y: number) => void;
@@ -132,7 +137,7 @@ interface TreeState {
   updateNodeIcon: (id: string, icon: string) => void;
   numberChildNotes: (id: string) => void;
   copyToClipboard: (ids: string[], action: 'copy' | 'cut') => void;
-  pasteFromClipboard: (parentId: string) => void;
+  pasteFromClipboard: (parentId: string | null) => void;
   moveNodeUp: (id: string) => void;
   moveNodeDown: (id: string) => void;
   moveNodeTo: (id: string, destParentId: string) => void;
@@ -327,6 +332,8 @@ export const useTreeStore = create<TreeState>()(
   hiddenIds: new Set<string>(),
   pinnedIds: new Set<string>(),
   lockedIds: new Set<string>(),
+  readIds: new Set<string>(),
+  deletedNodes: [],
   recentIds: [],
   lastAccessedAt: {},
   actionLog: [],
@@ -381,6 +388,37 @@ export const useTreeStore = create<TreeState>()(
     else newLocked.add(id);
     return { lockedIds: newLocked };
   }),
+
+  toggleRead: (id) => set((state) => {
+    const newRead = new Set(state.readIds);
+    if (newRead.has(id)) newRead.delete(id);
+    else newRead.add(id);
+    return { readIds: newRead };
+  }),
+
+  restoreNode: (id) => set((state) => {
+    const entry = state.deletedNodes.find(e => e.node.id === id);
+    if (!entry) return state;
+    const newDeleted = state.deletedNodes.filter(e => e.node.id !== id);
+    // Restore to root if parent gone, else to parent
+    const parentExists = entry.parentId ? !!findNodeById(state.data, entry.parentId) : false;
+    let newData: TreeNode[];
+    if (!entry.parentId || !parentExists) {
+      newData = [...state.data, entry.node];
+    } else {
+      const addToParent = (nodes: TreeNode[]): TreeNode[] =>
+        nodes.map(n => n.id === entry.parentId
+          ? { ...n, children: [...(n.children || []), entry.node] }
+          : { ...n, children: n.children ? addToParent(n.children) : undefined }
+        );
+      newData = addToParent(state.data);
+    }
+    return { data: newData, deletedNodes: newDeleted };
+  }),
+
+  permanentlyDelete: (id) => set((state) => ({
+    deletedNodes: state.deletedNodes.filter(e => e.node.id !== id)
+  })),
 
   selectRange: (id) => set((state) => {
     if (!state.anchorId) return { selectedIds: new Set([id]), anchorId: id };
@@ -675,6 +713,27 @@ export const useTreeStore = create<TreeState>()(
   deleteNode: (id) => set((state) => {
     const nodeToDelete = findNodeById(state.data, id);
     const title = nodeToDelete ? nodeToDelete.title : 'Unknown Note';
+    const parentNode = getParentNode(state.data, id);
+
+    const findFocusTarget = (nodes: TreeNode[], targetId: string, parentId: string | null = null): string | null => {
+      const index = nodes.findIndex(n => n.id === targetId);
+      if (index !== -1) {
+        if (index > 0) {
+           return nodes[index - 1].id;
+        } else {
+           return parentId;
+        }
+      }
+      for (const n of nodes) {
+        if (n.children) {
+          const found = findFocusTarget(n.children, targetId, n.id);
+          if (found !== null) return found;
+        }
+      }
+      return null;
+    };
+
+    const idToFocus = findFocusTarget(state.data, id);
 
     const deleteRecursive = (nodes: TreeNode[]): TreeNode[] => {
       return nodes.filter(node => node.id !== id).map(node => ({
@@ -692,7 +751,20 @@ export const useTreeStore = create<TreeState>()(
     }, ...state.actionLog];
     if (newLog.length > 30) newLog = newLog.slice(0, 30);
 
-    return { data: deleteRecursive(state.data), actionLog: newLog };
+    // Lưu vào Recycle Bin
+    const newDeletedEntry = nodeToDelete
+      ? { node: nodeToDelete, parentId: parentNode ? parentNode.id : null, deletedAt: Date.now() }
+      : null;
+    const newDeleted = newDeletedEntry
+      ? [...state.deletedNodes, newDeletedEntry].slice(-50)
+      : state.deletedNodes;
+
+    return { 
+       data: deleteRecursive(state.data), 
+       actionLog: newLog,
+       focusedId: idToFocus || null,
+       deletedNodes: newDeleted
+    };
   }),
 
   hideNode: (id) => set((state) => {
@@ -801,6 +873,13 @@ export const useTreeStore = create<TreeState>()(
 
     const newNodes = nodes.map(cloneRecursive);
     
+    if (!parentId) {
+      return {
+        data: [...newData, ...newNodes],
+        clipboard: action === 'cut' ? null : state.clipboard
+      };
+    }
+
     const addRecursive = (treeNodes: TreeNode[]): TreeNode[] => treeNodes.map(n => {
       if (n.id === parentId) {
         return { ...n, children: [...(n.children || []), ...newNodes] };

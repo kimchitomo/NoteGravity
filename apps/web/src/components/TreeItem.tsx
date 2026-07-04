@@ -33,6 +33,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
 
   const hasChildren = node.children && node.children.length > 0;
   const [isSpeechModalOpen, setIsSpeechModalOpen] = useState(false);
+  const [speechCursorPos, setSpeechCursorPos] = useState<{ start: number, end: number } | undefined>(undefined);
 
   const deleteLastWord = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -272,14 +273,13 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
               onKeyDown={(e) => {
                 if (e.key === 'F3') {
                   e.preventDefault();
-                  let currentInput = inputValue;
                   if (inputRef.current) {
-                      const start = inputRef.current.selectionStart || 0;
-                      const end = inputRef.current.selectionEnd || 0;
-                      if (end > start) {
-                          currentInput = currentInput.substring(0, start) + (start > 0 ? ' ' : '') + currentInput.substring(end);
-                          setInputValue(currentInput.trim());
-                      }
+                      setSpeechCursorPos({
+                          start: inputRef.current.selectionStart || 0,
+                          end: inputRef.current.selectionEnd || 0
+                      });
+                  } else {
+                      setSpeechCursorPos(undefined);
                   }
                   setIsSpeechModalOpen(true);
                 }
@@ -294,18 +294,17 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  let currentInput = inputValue;
                   if (inputRef.current) {
-                      const start = inputRef.current.selectionStart || 0;
-                      const end = inputRef.current.selectionEnd || 0;
-                      if (end > start) {
-                          currentInput = currentInput.substring(0, start) + (start > 0 ? ' ' : '') + currentInput.substring(end);
-                          setInputValue(currentInput.trim());
-                      }
+                      setSpeechCursorPos({
+                          start: inputRef.current.selectionStart || 0,
+                          end: inputRef.current.selectionEnd || 0
+                      });
+                  } else {
+                      setSpeechCursorPos(undefined);
                   }
                   setIsSpeechModalOpen(true);
                 }}
-                title="Mở hộp thoại Nhận diện Giọng nói"
+                title="Mở hộp thoại Nhận diện Giọng nói (F3)"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', padding: '2px', display: 'flex', alignItems: 'center' }}
               >
                 <Mic size={14} />
@@ -369,7 +368,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
                     <button 
                       onClick={(e) => { e.stopPropagation(); addNode(node.id, 'note', 'Ghi chú mới'); }}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px', color: 'inherit' }}
-                      title="Thêm Ghi chú"
+                      title="Thêm Ghi chú (F7)"
                     >
                       <Plus size={14} />
                     </button>
@@ -399,6 +398,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
       {isSpeechModalOpen && (
         <SpeechRecognitionModal 
            initialText={inputValue}
+           initialCursorPosition={speechCursorPos}
            onClose={() => setIsSpeechModalOpen(false)}
            onApply={(text) => {
               const final = text.trim();

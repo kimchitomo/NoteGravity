@@ -5,11 +5,12 @@ import { useTreeStore, asrWorker, initAsrWorker, terminateAsrWorker } from '../.
 
 export interface SpeechRecognitionModalProps {
   initialText: string;
+  initialCursorPosition?: { start: number, end: number };
   onClose: () => void;
   onApply: (text: string) => void;
 }
 
-export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ initialText, onClose, onApply }) => {
+export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ initialText, initialCursorPosition, onClose, onApply }) => {
   const { offlineAsrDevice, setOfflineAsrDevice } = useTreeStore();
   const [inputValue, setInputValue] = useState(initialText);
   
@@ -60,11 +61,15 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
     
     if (textareaRef.current) {
       textareaRef.current.focus();
-      const defaultTitles = ['Ghi chú mới', 'Thư mục mới', 'Tiêu đề mới', 'Page Title', 'Sổ tay mới', 'Untitled', 'Sổ tay cá nhân', 'Sổ tay Công việc'];
-      if (defaultTitles.includes(initialText.trim())) {
-        textareaRef.current.select();
+      if (initialCursorPosition) {
+        textareaRef.current.setSelectionRange(initialCursorPosition.start, initialCursorPosition.end);
       } else {
-        textareaRef.current.setSelectionRange(initialText.length, initialText.length);
+        const defaultTitles = ['Ghi chú mới', 'Thư mục mới', 'Tiêu đề mới', 'Page Title', 'Sổ tay mới', 'Untitled', 'Sổ tay cá nhân', 'Sổ tay Công việc'];
+        if (defaultTitles.includes(initialText.trim())) {
+          textareaRef.current.select();
+        } else {
+          textareaRef.current.setSelectionRange(initialText.length, initialText.length);
+        }
       }
       handleTextOrCursorChange();
     }

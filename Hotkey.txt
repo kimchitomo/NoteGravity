@@ -1,0 +1,20 @@
+﻿Phím tắt	Chức năng
+Ctrl+B/I/U	Bold / Italic / Underline
+Ctrl+Shift+X	Strikethrough
+Ctrl+Shift+H	Highlight
+Ctrl+Shift+L/E/R/J	Căn trái/giữa/phải/đều
+Ctrl+Shift+7/8/9	Ordered/Bullet/Task list
+Ctrl+Alt+0/1/2/3	Normal/H1/H2/H3
+Ctrl+Shift+B	Blockquote
+Ctrl+Shift+T	Insert Table
+Ctrl+K	Insert Link
+Ctrl+Shift+D	Insert Date/Time
+Ctrl+Shift+I	Insert Image
+Alt+1…6	Draw tools (Type/Pen/Highlighter/Eraser/Shape/Pan)
+Ctrl+= / Ctrl+-	Zoom In / Out
+Ctrl+0	Zoom 100%
+Ctrl+Shift+F	Fullscreen
+Ctrl+F / Ctrl+H	Find / Replace
+Ctrl+Shift+G	Translate selection
+Ctrl+Shift+P	Lock/Unlock note
+F3	Voice recognition

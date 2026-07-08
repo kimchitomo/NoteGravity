@@ -2,6 +2,7 @@ import React from 'react';
 import { Undo2, Redo2, RefreshCw, Search, Minimize, Maximize, X, User, Mic, Menu } from 'lucide-react';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
+import { useHistoryStore } from '../../store/useHistoryStore';
 
 export const TitleBar: React.FC = () => {
   const isMobile = useIsMobile();
@@ -27,8 +28,8 @@ export const TitleBar: React.FC = () => {
         )}
         {!isMobile && (
           <>
-            <button className="qat-btn" title="Undo"><Undo2 size={16} /></button>
-            <button className="qat-btn" title="Redo"><Redo2 size={16} /></button>
+            <button className="qat-btn" title="Hoàn tác (Ctrl+Z)" onClick={() => useHistoryStore.getState().globalUndo()}><Undo2 size={16} /></button>
+            <button className="qat-btn" title="Làm lại (Ctrl+Y)" onClick={() => useHistoryStore.getState().globalRedo()}><Redo2 size={16} /></button>
             <button className="qat-btn" title="Sync"><RefreshCw size={16} /></button>
           </>
         )}

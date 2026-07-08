@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useCanvasStore, Stroke, StrokePoint, ShapeItem } from '../../store/useCanvasStore';
 import getStroke from 'perfect-freehand';
 
@@ -18,11 +18,11 @@ const getSvgPathFromStroke = (stroke: number[][]) => {
 };
 
 // Render shape SVG element
-const renderShapeElement = (shape: ShapeItem) => {
+const renderShapeElement = (shape: ShapeItem, highlight = false) => {
   const props = {
     key: shape.id,
-    stroke: shape.color,
-    strokeWidth: shape.strokeWidth,
+    stroke: highlight ? '#3b82f6' : shape.color,
+    strokeWidth: highlight ? shape.strokeWidth + 1 : shape.strokeWidth,
     fill: shape.fill || 'none',
     style: { pointerEvents: 'none' as const },
   };
@@ -60,12 +60,84 @@ const renderShapeElement = (shape: ShapeItem) => {
     const ay2 = y2 - arrowLen * Math.sin(angle + Math.PI / 6);
     return (
       <g key={shape.id} style={{ pointerEvents: 'none' }}>
-        <line stroke={shape.color} strokeWidth={shape.strokeWidth} fill="none" x1={shape.x} y1={shape.y} x2={x2} y2={y2} />
-        <polyline stroke={shape.color} strokeWidth={shape.strokeWidth} fill="none" points={`${ax1},${ay1} ${x2},${y2} ${ax2},${ay2}`} />
+        <line stroke={highlight ? '#3b82f6' : shape.color} strokeWidth={shape.strokeWidth} fill="none" x1={shape.x} y1={shape.y} x2={x2} y2={y2} />
+        <polyline stroke={highlight ? '#3b82f6' : shape.color} strokeWidth={shape.strokeWidth} fill="none" points={`${ax1},${ay1} ${x2},${y2} ${ax2},${ay2}`} />
       </g>
     );
   }
   return null;
+};
+
+// ===== Lasso geometry helpers =====
+
+// Kiểm tra một điểm có nằm trong polygon không (Ray Casting)
+const pointInPolygon = (px: number, py: number, polygon: { x: number; y: number }[]): boolean => {
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
+// Kiểm tra stroke có nằm trong lasso polygon không (ít nhất 50% points)
+const isStrokeInLasso = (stroke: Stroke, polygon: { x: number; y: number }[]): boolean => {
+  if (polygon.length < 3 || stroke.points.length === 0) return false;
+  let insideCount = 0;
+  for (const pt of stroke.points) {
+    if (pointInPolygon(pt.x, pt.y, polygon)) insideCount++;
+  }
+  return insideCount >= stroke.points.length * 0.4; // 40% bên trong = selected
+};
+
+// Kiểm tra shape có nằm trong lasso polygon không (center point)
+const isShapeInLasso = (shape: ShapeItem, polygon: { x: number; y: number }[]): boolean => {
+  if (polygon.length < 3) return false;
+  const cx = shape.x + shape.width / 2;
+  const cy = shape.y + shape.height / 2;
+  // Kiểm tra center + 4 corners
+  const corners = [
+    { x: cx, y: cy },
+    { x: shape.x, y: shape.y },
+    { x: shape.x + shape.width, y: shape.y },
+    { x: shape.x, y: shape.y + shape.height },
+    { x: shape.x + shape.width, y: shape.y + shape.height },
+  ];
+  let hits = 0;
+  for (const pt of corners) {
+    if (pointInPolygon(pt.x, pt.y, polygon)) hits++;
+  }
+  return hits >= 2; // 2/5 corners bên trong = selected
+};
+
+// Tính bounding box của selection
+const getSelectionBounds = (
+  selectedStrokes: Stroke[],
+  selectedShapes: ShapeItem[]
+): { x: number; y: number; w: number; h: number } | null => {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  for (const s of selectedStrokes) {
+    for (const pt of s.points) {
+      minX = Math.min(minX, pt.x - s.width / 2);
+      minY = Math.min(minY, pt.y - s.width / 2);
+      maxX = Math.max(maxX, pt.x + s.width / 2);
+      maxY = Math.max(maxY, pt.y + s.width / 2);
+    }
+  }
+  for (const sh of selectedShapes) {
+    minX = Math.min(minX, sh.x);
+    minY = Math.min(minY, sh.y);
+    maxX = Math.max(maxX, sh.x + sh.width);
+    maxY = Math.max(maxY, sh.y + sh.height);
+  }
+
+  if (minX === Infinity) return null;
+  return { x: minX - 4, y: minY - 4, w: maxX - minX + 8, h: maxY - minY + 8 };
 };
 
 interface CanvasDrawLayerProps {
@@ -75,7 +147,8 @@ interface CanvasDrawLayerProps {
 export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
   const {
     drawTool, drawColor, drawWidth, shapeType,
-    addStroke, removeStrokeAt, addShape
+    addStroke, removeStrokeAt, addShape,
+    moveStrokes, moveShapes, removeStrokes, removeShapes
   } = useCanvasStore();
 
   const pageDataRaw = useCanvasStore(state => state.pages[docId]);
@@ -93,7 +166,42 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const eraserActiveRef = useRef(false);
 
+  // === Lasso state ===
+  const [lassoPoints, setLassoPoints] = useState<{ x: number; y: number }[]>([]);
+  const [selectedStrokeIds, setSelectedStrokeIds] = useState<Set<string>>(new Set());
+  const [selectedShapeIds, setSelectedShapeIds] = useState<Set<string>>(new Set());
+  const [isDraggingSelection, setIsDraggingSelection] = useState(false);
+  const dragSelStartRef = useRef<{ x: number; y: number } | null>(null);
+  const isLassoDrawing = useRef(false);
+
   const isDrawingMode = ['pen', 'highlighter', 'eraser', 'shape'].includes(drawTool);
+  const isLassoMode = drawTool === 'lasso';
+  const hasSelection = selectedStrokeIds.size > 0 || selectedShapeIds.size > 0;
+
+  // Clear selection khi chuyển tool
+  useEffect(() => {
+    if (drawTool !== 'lasso') {
+      setSelectedStrokeIds(new Set());
+      setSelectedShapeIds(new Set());
+      setLassoPoints([]);
+    }
+  }, [drawTool]);
+
+  // Keyboard: Delete/Backspace xóa selection
+  useEffect(() => {
+    if (!isLassoMode) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && hasSelection) {
+        e.preventDefault();
+        if (selectedStrokeIds.size > 0) removeStrokes(docId, Array.from(selectedStrokeIds));
+        if (selectedShapeIds.size > 0) removeShapes(docId, Array.from(selectedShapeIds));
+        setSelectedStrokeIds(new Set());
+        setSelectedShapeIds(new Set());
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isLassoMode, hasSelection, selectedStrokeIds, selectedShapeIds, docId, removeStrokes, removeShapes]);
 
   const getSVGCoords = (e: React.PointerEvent): { x: number; y: number } => {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -104,10 +212,39 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (!isDrawingMode || !svgRef.current) return;
+    if (!svgRef.current) return;
     if (e.button === 1) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
     const { x, y } = getSVGCoords(e);
+
+    // === LASSO MODE ===
+    if (isLassoMode) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+
+      // Nếu đã có selection, kiểm tra xem click vào vùng selection không -> drag
+      if (hasSelection) {
+        const selStrokes = strokes.filter(s => selectedStrokeIds.has(s.id));
+        const selShapes = shapes.filter(s => selectedShapeIds.has(s.id));
+        const bounds = getSelectionBounds(selStrokes, selShapes);
+        if (bounds && x >= bounds.x && x <= bounds.x + bounds.w && y >= bounds.y && y <= bounds.y + bounds.h) {
+          // Bắt đầu drag selection
+          setIsDraggingSelection(true);
+          dragSelStartRef.current = { x, y };
+          return;
+        }
+        // Click ngoài selection -> clear
+        setSelectedStrokeIds(new Set());
+        setSelectedShapeIds(new Set());
+      }
+
+      // Bắt đầu vẽ lasso
+      isLassoDrawing.current = true;
+      setLassoPoints([{ x, y }]);
+      return;
+    }
+
+    // === DRAW MODES ===
+    if (!isDrawingMode) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
 
     if (drawTool === 'pen' || drawTool === 'highlighter') {
       setCurrentStrokePoints([{ x, y, pressure: e.pressure }]);
@@ -120,9 +257,30 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDrawingMode || !svgRef.current) return;
+    if (!svgRef.current) return;
     if (e.buttons !== 1) return;
     const { x, y } = getSVGCoords(e);
+
+    // === LASSO MODE ===
+    if (isLassoMode) {
+      if (isDraggingSelection && dragSelStartRef.current) {
+        const dx = x - dragSelStartRef.current.x;
+        const dy = y - dragSelStartRef.current.y;
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+          if (selectedStrokeIds.size > 0) moveStrokes(docId, Array.from(selectedStrokeIds), dx, dy);
+          if (selectedShapeIds.size > 0) moveShapes(docId, Array.from(selectedShapeIds), dx, dy);
+          dragSelStartRef.current = { x, y };
+        }
+        return;
+      }
+      if (isLassoDrawing.current) {
+        setLassoPoints(prev => [...prev, { x, y }]);
+      }
+      return;
+    }
+
+    // === DRAW MODES ===
+    if (!isDrawingMode) return;
 
     if ((drawTool === 'pen' || drawTool === 'highlighter') && currentStrokePoints.length > 0) {
       setCurrentStrokePoints(prev => [...prev, { x, y, pressure: e.pressure }]);
@@ -146,8 +304,37 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (!isDrawingMode) return;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+
+    // === LASSO MODE ===
+    if (isLassoMode) {
+      if (isDraggingSelection) {
+        // Kết thúc drag — lưu history 1 lần
+        useCanvasStore.getState().saveHistory(docId);
+        setIsDraggingSelection(false);
+        dragSelStartRef.current = null;
+        return;
+      }
+      if (isLassoDrawing.current && lassoPoints.length > 5) {
+        // Hoàn thành lasso → tìm items trong vùng chọn
+        const newStrokeIds = new Set<string>();
+        const newShapeIds = new Set<string>();
+        for (const s of strokes) {
+          if (isStrokeInLasso(s, lassoPoints)) newStrokeIds.add(s.id);
+        }
+        for (const sh of shapes) {
+          if (isShapeInLasso(sh, lassoPoints)) newShapeIds.add(sh.id);
+        }
+        setSelectedStrokeIds(newStrokeIds);
+        setSelectedShapeIds(newShapeIds);
+      }
+      setLassoPoints([]);
+      isLassoDrawing.current = false;
+      return;
+    }
+
+    // === DRAW MODES ===
+    if (!isDrawingMode) return;
 
     if ((drawTool === 'pen' || drawTool === 'highlighter') && currentStrokePoints.length > 2) {
       const newStroke: Stroke = {
@@ -168,7 +355,7 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
     eraserActiveRef.current = false;
   };
 
-  const renderStroke = (points: StrokePoint[], color: string, width: number, type: 'pen' | 'highlighter', key: string) => {
+  const renderStroke = (points: StrokePoint[], color: string, width: number, type: 'pen' | 'highlighter', key: string, highlight = false) => {
     const rawPoints = points.map(p => [p.x, p.y, p.pressure || 0.5]);
     const outlinePoints = getStroke(rawPoints, {
       size: width,
@@ -182,8 +369,8 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
       <path
         key={key}
         d={pathData}
-        fill={color}
-        opacity={type === 'highlighter' ? 0.4 : 1}
+        fill={highlight ? '#3b82f6' : color}
+        opacity={type === 'highlighter' ? 0.4 : (highlight ? 0.6 : 1)}
         style={{ pointerEvents: 'none', mixBlendMode: type === 'highlighter' ? 'multiply' : 'normal' }}
       />
     );
@@ -194,8 +381,18 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
     if (drawTool === 'eraser') return 'cell';
     if (drawTool === 'shape') return 'crosshair';
     if (drawTool === 'pen' || drawTool === 'highlighter') return 'crosshair';
+    if (drawTool === 'lasso') {
+      if (isDraggingSelection) return 'move';
+      if (hasSelection) return 'move';
+      return 'crosshair';
+    }
     return 'default';
   };
+
+  // Selection bounding box
+  const selStrokes = strokes.filter(s => selectedStrokeIds.has(s.id));
+  const selShapes = shapes.filter(s => selectedShapeIds.has(s.id));
+  const selectionBounds = hasSelection ? getSelectionBounds(selStrokes, selShapes) : null;
 
   return (
     <svg
@@ -206,8 +403,8 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
         left: 0,
         width: '100%',
         height: '100%',
-        pointerEvents: isDrawingMode ? 'auto' : 'none',
-        zIndex: isDrawingMode ? 50 : 0,
+        pointerEvents: (isDrawingMode || isLassoMode) ? 'auto' : 'none',
+        zIndex: (isDrawingMode || isLassoMode) ? 50 : 0,
         touchAction: 'none',
         cursor: getCursor(),
       }}
@@ -218,10 +415,13 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
     >
       <g transform={`translate(${pageData.panX}, ${pageData.panY}) scale(${pageData.zoom})`}>
         {/* Render strokes */}
-        {strokes.map(s => renderStroke(s.points, s.color, s.width, s.type, s.id))}
+        {strokes.map(s => renderStroke(
+          s.points, s.color, s.width, s.type, s.id,
+          selectedStrokeIds.has(s.id)
+        ))}
 
         {/* Render shapes */}
-        {shapes.map(shape => renderShapeElement(shape))}
+        {shapes.map(shape => renderShapeElement(shape, selectedShapeIds.has(shape.id)))}
 
         {/* Eraser cursor indicator */}
         {drawTool === 'eraser' && (
@@ -235,6 +435,55 @@ export const CanvasDrawLayer: React.FC<CanvasDrawLayerProps> = ({ docId }) => {
 
         {/* Shape preview */}
         {previewShape && renderShapeElement(previewShape)}
+
+        {/* === LASSO UI === */}
+        {/* Lasso drawing path (dashed blue line) */}
+        {lassoPoints.length > 1 && (
+          <polyline
+            points={lassoPoints.map(p => `${p.x},${p.y}`).join(' ')}
+            fill="rgba(59, 130, 246, 0.08)"
+            stroke="#3b82f6"
+            strokeWidth={1.5 / pageData.zoom}
+            strokeDasharray={`${4 / pageData.zoom} ${3 / pageData.zoom}`}
+            style={{ pointerEvents: 'none' }}
+          />
+        )}
+
+        {/* Selection bounding box */}
+        {selectionBounds && (
+          <>
+            <rect
+              x={selectionBounds.x}
+              y={selectionBounds.y}
+              width={selectionBounds.w}
+              height={selectionBounds.h}
+              fill="rgba(59, 130, 246, 0.06)"
+              stroke="#3b82f6"
+              strokeWidth={1.5 / pageData.zoom}
+              strokeDasharray={`${5 / pageData.zoom} ${3 / pageData.zoom}`}
+              rx={3 / pageData.zoom}
+              style={{ pointerEvents: 'none' }}
+            />
+            {/* Corner handles */}
+            {[
+              { cx: selectionBounds.x, cy: selectionBounds.y },
+              { cx: selectionBounds.x + selectionBounds.w, cy: selectionBounds.y },
+              { cx: selectionBounds.x, cy: selectionBounds.y + selectionBounds.h },
+              { cx: selectionBounds.x + selectionBounds.w, cy: selectionBounds.y + selectionBounds.h },
+            ].map((handle, i) => (
+              <circle
+                key={`handle-${i}`}
+                cx={handle.cx}
+                cy={handle.cy}
+                r={4 / pageData.zoom}
+                fill="#fff"
+                stroke="#3b82f6"
+                strokeWidth={1.5 / pageData.zoom}
+                style={{ pointerEvents: 'none' }}
+              />
+            ))}
+          </>
+        )}
       </g>
     </svg>
   );

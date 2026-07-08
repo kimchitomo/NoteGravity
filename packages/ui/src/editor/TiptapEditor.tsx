@@ -118,6 +118,9 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
         onContentChange();
       }
     },
+    onFocus: () => {
+      window.dispatchEvent(new CustomEvent('capture-global-snapshot'));
+    },
     // Không dùng 'content' tĩnh khi dùng Collaboration
     // content: '<p>Bắt đầu nhập nội dung tại đây...</p>',
     content: localStorage.getItem(`note-content-${docId}`) || (autoFocus ? '<p></p>' : '<p>Bắt đầu nhập nội dung tại đây...</p>'),
@@ -150,7 +153,7 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
 
     const handleReloadEditor = (e: any) => {
       const targetId = e.detail?.docId;
-      if (targetId && (docId === targetId || docId.startsWith(`${targetId}-`))) {
+      if (targetId && (targetId === 'ALL' || docId === targetId || docId.startsWith(`${targetId}-`))) {
         reloadContent();
       }
     };
@@ -163,6 +166,52 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
       window.removeEventListener('storage', reloadContent);
     };
   }, [editor, docId]);
+
+  // Listen for canvas search and replace
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleReplaceAll = (e: any) => {
+      const { docId: targetDoc, find, replace } = e.detail;
+      if (targetDoc && (docId === targetDoc || docId.startsWith(`${targetDoc}-`))) {
+         const matches: { from: number; to: number; replacement: string }[] = [];
+         editor.state.doc.descendants((node, pos) => {
+            if (node.isText && node.text) {
+               // Escape regex specials
+               const escapedFind = find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+               const regex = new RegExp(escapedFind, 'gi');
+               let match;
+               while ((match = regex.exec(node.text)) !== null) {
+                   matches.push({
+                       from: pos + match.index,
+                       to: pos + match.index + match[0].length,
+                       replacement: replace
+                   });
+               }
+            }
+         });
+         
+         if (matches.length > 0) {
+             // Apply from back to front to avoid position shifting
+             matches.sort((a, b) => b.from - a.from);
+             let chain = editor.chain();
+             matches.forEach(m => {
+                 chain = chain.deleteRange({ from: m.from, to: m.to }).insertContentAt(m.from, m.replacement);
+             });
+             chain.run();
+             
+             // Update local storage
+             localStorage.setItem(`note-content-${docId}`, editor.getHTML());
+             if (onContentChange) onContentChange();
+         }
+      }
+    };
+
+    window.addEventListener('canvas-replace-all', handleReplaceAll);
+    return () => {
+      window.removeEventListener('canvas-replace-all', handleReplaceAll);
+    };
+  }, [editor, docId, onContentChange]);
 
   return (
     <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: autoWidth ? 'max-content' : '100%', minWidth: autoWidth ? 'min-content' : '100%', backgroundColor: 'transparent' }}>

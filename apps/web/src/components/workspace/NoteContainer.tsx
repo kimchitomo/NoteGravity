@@ -234,7 +234,9 @@ export const NoteContainer: React.FC<NoteContainerProps> = ({ docId, containerId
       onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
-        if (!isFocused) {
+        if (e.ctrlKey) {
+          updateContainer(docId, containerId, { isFocused: !isFocused }, true);
+        } else if (!isFocused) {
           updateContainer(docId, containerId, { isFocused: true });
         }
         // Nếu click không trúng trực tiếp vào ProseMirror thì tự focus và đặt con trỏ về đầu

@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import html2canvas from 'html2canvas';
-import { ArrowLeft, Info, Printer, Share2, Download, Upload, Send, Settings, User, FileText, Smartphone, Mail, Cloud, Network, Wifi, Save, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Info, Printer, Share2, Download, Upload, Send, Settings, User, FileText, Smartphone, Mail, Cloud, Network, Wifi, Save, MessageSquare, Plus } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-
+import { parseFileToTree, ImportNode } from '../../utils/importParser';
+import { ImportMapperModal, ImportRule, ImportTarget } from '../modals/ImportMapperModal';
+import { useTreeStore, TreeNode } from '../../store/useTreeStore';
+import { useCanvasStore } from '../../store/useCanvasStore';
 interface BackstageViewProps {
   onClose: () => void;
   initialTab?: Tab;
@@ -18,6 +21,9 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
   const [isSimulating, setIsSimulating] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
+  const [importData, setImportData] = useState<ImportNode[] | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const treeStore = useTreeStore();
 
   useEffect(() => {
     if (activeTab === 'print') {
@@ -104,7 +110,237 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
     setTimeout(() => {
       setIsSimulating(false);
       alert(`Đã hoàn tất giả lập: ${actionName}`);
+      return;
     }, 1500);
+  };
+
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsSimulating(true);
+      const data = await parseFileToTree(file);
+      setImportData(data);
+      setIsImportModalOpen(true);
+    } catch (err) {
+      console.error(err);
+      alert('Lỗi phân tích file!');
+    } finally {
+      setIsSimulating(false);
+      e.target.value = '';
+    }
+  };
+
+  const executeImport = (rules: ImportRule[]) => {
+    if (!importData) return;
+
+    const evaluateNode = (node: ImportNode): { target: ImportTarget, rule?: ImportRule } => {
+      for (const rule of rules) {
+        let isMatch = false;
+        if (rule.field === 'elementType') {
+          if (rule.operator === 'eq' && node.elementType === rule.value.trim()) isMatch = true;
+          if (rule.operator === 'in') {
+            const vals = rule.value.split(',').map(s => s.trim());
+            if (vals.includes(node.elementType || '')) isMatch = true;
+          }
+        } else if (rule.field === 'level') {
+          if (rule.operator === 'in') {
+             const vals = rule.value.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+             if (vals.includes(node.level)) isMatch = true;
+          } else {
+             const v = parseInt(rule.value, 10);
+             if (!isNaN(v)) {
+               if (rule.operator === 'eq' && node.level === v) isMatch = true;
+               if (rule.operator === 'gt' && node.level > v) isMatch = true;
+               if (rule.operator === 'lt' && node.level < v) isMatch = true;
+             }
+          }
+        } else if (rule.field === 'title') {
+          if (rule.operator === 'contains' && node.title.toLowerCase().includes(rule.value.toLowerCase())) isMatch = true;
+          if (rule.operator === 'eq' && node.title === rule.value) isMatch = true;
+        } else if (rule.field === 'attachment') {
+          if (rule.operator === 'has' && node.attachments && node.attachments.length > 0) isMatch = true;
+        }
+        if (isMatch) return { target: rule.target, rule };
+      }
+      return { target: 'note' };
+    };
+
+    const newNodes: TreeNode[] = [];
+    const nodesContentMap = new Map<string, { contentRef: { content: string }, title: string, target: string }>();
+
+    const processNode = (importNode: ImportNode, parentContentRef: { content: string }, siblingContext: { lastContentRef: { content: string } | null }) => {
+      const evaluated = evaluateNode(importNode);
+      const target = evaluated.target;
+      const ruleMatch = evaluated.rule;
+
+      let contentToAccumulate = '';
+      if (importNode.content) contentToAccumulate += `\n${importNode.content}`;
+      if (importNode.attachments) {
+        importNode.attachments.forEach(att => {
+          contentToAccumulate += `\n\n![${att.filename}](${att.dataUrl})`;
+        });
+      }
+
+      if (target === 'ignore') {
+        importNode.children.forEach(child => processNode(child, parentContentRef, siblingContext));
+        return null;
+      }
+
+      if (target.startsWith('content')) {
+        let defaultFormat = '\n## {title}';
+        if (importNode.elementType?.startsWith('l')) {
+            defaultFormat = '\n- {title}';
+        } else if (importNode.elementType === 'text' || importNode.elementType === 'p') {
+            defaultFormat = '\n{title}';
+        }
+        let formatStr = (ruleMatch && ruleMatch.formatStr !== undefined && ruleMatch.formatStr !== '') ? ruleMatch.formatStr : defaultFormat;
+        if (formatStr && !formatStr.includes('{title}')) {
+            formatStr += '{title}';
+        }
+        const useTitle = importNode.htmlTitle || importNode.title;
+        const formattedTitle = formatStr.replace(/\{title\}/g, useTitle);
+        
+        let allChildrenStr = '';
+        if (target.includes('cascade')) {
+          const flattenNodeToString = (n: ImportNode, depth: number): string => {
+             let res = '';
+             if (n !== importNode) {
+                const prefix = '  '.repeat(depth);
+                const nTitle = n.htmlTitle || n.title;
+                res += `\n${prefix}- ${nTitle}`;
+             }
+             if (n.content) res += `\n${n.content}`;
+             if (n.attachments) n.attachments.forEach(att => res += `\n\n![${att.filename}](${att.dataUrl})`);
+             if (n.children) n.children.forEach(c => {
+                res += flattenNodeToString(c, depth + 1);
+             });
+             return res;
+          };
+          allChildrenStr = flattenNodeToString(importNode, 0);
+        }
+
+        const targetRef = ((target.includes('prev') || target.includes('sibling')) && siblingContext.lastContentRef) ? siblingContext.lastContentRef : parentContentRef;
+        targetRef.content += `\n${formattedTitle}${contentToAccumulate}${allChildrenStr}`;
+        
+        if (!target.includes('cascade')) {
+           importNode.children.forEach(child => processNode(child, parentContentRef, { lastContentRef: null }));
+        }
+        return null;
+      }
+
+      const now = Date.now();
+      const id = `${now}-${Math.random().toString(36).substring(2, 9)}`;
+      
+      const myContentRef = { content: contentToAccumulate.trim() };
+      if (siblingContext) siblingContext.lastContentRef = myContentRef;
+
+      nodesContentMap.set(id, { contentRef: myContentRef, title: importNode.title, target });
+
+      const childrenNodes: TreeNode[] = [];
+      const childSiblingContext = { lastContentRef: null };
+
+      importNode.children.forEach(child => {
+        const childNode = processNode(child, myContentRef, childSiblingContext);
+        if (childNode) childrenNodes.push(childNode);
+      });
+
+      const treeNode: TreeNode = {
+        id,
+        title: importNode.title,
+        type: target === 'notebook' ? 'notebook' : 'note',
+        children: childrenNodes.length > 0 ? childrenNodes : undefined,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      return treeNode;
+    };
+
+    const convertMarkdownToHTML = (text: string) => {
+       let html = text;
+       html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" />');
+       html = html.replace(/^###### (.*$)/gim, '<h6>$1</h6>');
+       html = html.replace(/^##### (.*$)/gim, '<h5>$1</h5>');
+       html = html.replace(/^#### (.*$)/gim, '<h4>$1</h4>');
+       html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+       html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+       html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+       html = html.replace(/^\s*- (.*$)/gim, '<ul><li>$1</li></ul>');
+       html = html.replace(/<\/ul>\s*<ul>/gim, '');
+       html = html.split('\n').filter(l => l.trim()).map(line => {
+           if (line.trim().startsWith('<')) return line;
+           return `<p>${line}</p>`;
+       }).join('');
+       return html;
+    };
+
+    importData.forEach(rootNode => {
+      const myContentRef = { content: '' };
+      const processed = processNode(rootNode, myContentRef, { lastContentRef: null });
+      if (processed) {
+        newNodes.push(processed);
+      }
+    }); 
+    
+    nodesContentMap.forEach((data, id) => {
+      const rawMarkdown = data.contentRef.content.trim();
+      let finalHtml = convertMarkdownToHTML(rawMarkdown);
+      
+      if (!finalHtml) {
+         finalHtml = `<p><b>${data.title}</b></p>`;
+      }
+
+      if (finalHtml || data.target === 'note' || data.target === 'notebook') {
+        const containerId = Math.random().toString(36).substring(2, 9);
+        
+        useCanvasStore.setState((state) => ({
+          pages: {
+            ...state.pages,
+            [id]: {
+              zoom: 1,
+              panX: 0,
+              panY: 0,
+              pageColor: '#ffffff',
+              gridPattern: 'none',
+              paperSize: 'a4',
+              strokes: [],
+              shapes: [],
+              containers: [{
+                id: containerId,
+                x: 48,
+                y: 48,
+                width: 700,
+                isAutoWidth: true,
+                isFocused: false
+              }]
+            }
+          }
+        }));
+
+        localStorage.setItem(`note-content-${id}-${containerId}`, finalHtml);
+        localStorage.setItem(`note-content-${id}`, finalHtml);
+      }
+    });
+    
+    if (newNodes.length > 0) {
+      treeStore.addImportedNodes(newNodes);
+      alert(`Nhập thành công ${newNodes.length} thư mục/ghi chú gốc.`);
+    } else {
+      alert('Không có dữ liệu nào được nhập.');
+    }
+
+    setIsImportModalOpen(false);
+    setImportData(null);
+  };
+
+  const renderContent = () => {
+    if (!previewImage) {
+      alert("Đang tải bản xem trước, vui lòng thử lại sau giây lát.");
+      return;
+    }
+
+    // ... existing renderContent implementation
   };
 
   const handlePrint = () => {
@@ -447,7 +683,7 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
               <Upload size={48} color="#9ca3af" style={{ marginBottom: '16px' }} />
               <h2 style={{ fontSize: '18px', fontWeight: 500, marginBottom: '8px' }}>Kéo thả hoặc chọn file để nhập dữ liệu</h2>
               <p style={{ color: '#6b7280', marginBottom: '24px', fontSize: '14px' }}>Hỗ trợ các định dạng: .ngg, .one, .pdf, .xps, .docx, .doc, .mhtml, .md, .mermaid, .freemind, .opml, .html, .json, .pst</p>
-              <input type="file" id="importFile" style={{ display: 'none' }} accept=".ngg,.one,.pdf,.xps,.docx,.doc,.mhtml,.md,.mermaid,.freemind,.opml,.html,.json,.pst" onChange={() => simulateAction('Phân tích (Parse) dữ liệu file')} />
+              <input type="file" id="importFile" style={{ display: 'none' }} accept=".ngg,.one,.pdf,.xps,.docx,.doc,.mhtml,.md,.mermaid,.freemind,.opml,.html,.json,.pst,.csv" onChange={handleFileImport} />
               <button 
                 onClick={() => document.getElementById('importFile')?.click()}
                 style={{ padding: '12px 24px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
@@ -523,6 +759,15 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
         .format-btn:hover { border-color: #9ca3af; }
         .format-btn.active { border-color: #10b981; background-color: #ecfdf5; box-shadow: inset 0 0 0 1px #10b981; }
       `}</style>
+      {/* Import Modal */}
+      {importData && (
+        <ImportMapperModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          data={importData}
+          onImport={executeImport}
+        />
+      )}
     </div>
   );
 };

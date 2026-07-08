@@ -2,18 +2,21 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTreeStore } from '../../store/useTreeStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
+import { useHistoryStore } from '../../store/useHistoryStore';
 import { NoteContainer } from './NoteContainer';
 import { PageTitleBlock } from './PageTitleBlock';
 import { CanvasDrawLayer } from './CanvasDrawLayer';
+import { CanvasSearchReplace } from './CanvasSearchReplace';
 
 export const EditorView = () => {
   const { activeNoteId } = useWorkspaceStore();
   const { data } = useTreeStore();
   const setZoom = useCanvasStore(state => state.setZoom);
-  const undo = useCanvasStore(state => state.undo);
-  const redo = useCanvasStore(state => state.redo);
   const drawTool = useCanvasStore(state => state.drawTool);
   const addContainer = useCanvasStore(state => state.addContainer);
+  const removeContainers = useCanvasStore(state => state.removeContainers);
+  const selectAllContainers = useCanvasStore(state => state.selectAllContainers);
+  const clearAllFocus = useCanvasStore(state => state.clearAllFocus);
   
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
@@ -169,27 +172,39 @@ export const EditorView = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      // Skip if user is actively typing in a text field or editable element
+      // Skip if user is actively typing in a text field or editable element for other shortcuts
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return;
       }
       
-      if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+      if (e.key === 'Delete') {
+        // Find focused containers and delete them
+        const state = useCanvasStore.getState();
+        const page = state.pages[docId];
+        if (page) {
+           const focusedIds = page.containers.filter(c => c.isFocused).map(c => c.id);
+           if (focusedIds.length > 0) {
+              e.preventDefault();
+              removeContainers(docId, focusedIds);
+           }
+        }
+      } else if (e.ctrlKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
-        undo(docId);
-      } else if (e.ctrlKey && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        redo(docId);
+        selectAllContainers(docId);
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [docId, undo, redo]);
+  }, [docId]);
 
   // Click to create note
   const handleCanvasClick = (e: React.MouseEvent) => {
     if (isPanning) return;
+    
+    // Clear all focus when clicking on the canvas surface
+    clearAllFocus(docId);
+
     if (drawTool !== 'type') return; // Don't create text boxes while using drawing tools
     
     // Calculate click pos relative to canvas origin, factoring in zoom and native scroll
@@ -301,6 +316,7 @@ export const EditorView = () => {
       onTouchEnd={handleTouchEnd}
       onClick={handleCanvasClick}
     >
+      <CanvasSearchReplace />
       {/* The Canvas Surface */}
       <div 
         className="infinite-canvas-surface"

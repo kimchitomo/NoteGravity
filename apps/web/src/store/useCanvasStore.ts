@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useHistoryStore } from './useHistoryStore';
 
 export interface NoteContainerData {
   id: string;
@@ -71,13 +72,20 @@ interface CanvasState {
   setGridPattern: (docId: string, pattern: 'none' | 'rule' | 'grid') => void;
   setPaperSize: (docId: string, size: 'auto' | 'a4' | 'a3' | 'letter') => void;
   addContainer: (docId: string, x: number, y: number) => string;
-  updateContainer: (docId: string, containerId: string, updates: Partial<NoteContainerData>) => void;
+  updateContainer: (docId: string, containerId: string, updates: Partial<NoteContainerData>, multiSelect?: boolean) => void;
   removeContainer: (docId: string, containerId: string) => void;
+  removeContainers: (docId: string, containerIds: string[]) => void;
+  selectAllContainers: (docId: string) => void;
+  clearAllFocus: (docId: string) => void;
   addStroke: (docId: string, stroke: Stroke) => void;
   clearStrokes: (docId: string) => void;
   removeStrokeAt: (docId: string, x: number, y: number, radius: number) => void;
   addShape: (docId: string, shape: ShapeItem) => void;
   removeShape: (docId: string, shapeId: string) => void;
+  removeStrokes: (docId: string, strokeIds: string[]) => void;
+  removeShapes: (docId: string, shapeIds: string[]) => void;
+  moveStrokes: (docId: string, strokeIds: string[], dx: number, dy: number) => void;
+  moveShapes: (docId: string, shapeIds: string[], dx: number, dy: number) => void;
   clearAll: (docId: string) => void;
 
   saveHistory: (docId: string) => void;
@@ -257,7 +265,7 @@ export const useCanvasStore = create<CanvasState>()(
         return newId;
       },
 
-      updateContainer: (docId, containerId, updates) => set((state) => {
+      updateContainer: (docId, containerId, updates, multiSelect = false) => set((state) => {
         const page = state.pages[docId];
         if (!page) return state;
         return {
@@ -267,7 +275,7 @@ export const useCanvasStore = create<CanvasState>()(
               ...page,
               containers: page.containers.map(c =>
                 c.id === containerId ? { ...c, ...updates } :
-                (updates.isFocused ? { ...c, isFocused: false } : c)
+                (updates.isFocused && !multiSelect ? { ...c, isFocused: false } : c)
               )
             }
           }
@@ -290,6 +298,53 @@ export const useCanvasStore = create<CanvasState>()(
           };
         });
       },
+
+      removeContainers: (docId, containerIds) => {
+        if (containerIds.length === 0) return;
+        get().saveHistory(docId);
+        set((state) => {
+          const page = state.pages[docId];
+          if (!page) return state;
+          const idsSet = new Set(containerIds);
+          return {
+            pages: {
+              ...state.pages,
+              [docId]: {
+                ...page,
+                containers: page.containers.filter(c => !idsSet.has(c.id))
+              }
+            }
+          };
+        });
+      },
+
+      selectAllContainers: (docId) => set((state) => {
+        const page = state.pages[docId];
+        if (!page) return state;
+        return {
+          pages: {
+            ...state.pages,
+            [docId]: {
+              ...page,
+              containers: page.containers.map(c => ({ ...c, isFocused: true }))
+            }
+          }
+        };
+      }),
+
+      clearAllFocus: (docId) => set((state) => {
+        const page = state.pages[docId];
+        if (!page) return state;
+        return {
+          pages: {
+            ...state.pages,
+            [docId]: {
+              ...page,
+              containers: page.containers.map(c => ({ ...c, isFocused: false }))
+            }
+          }
+        };
+      }),
 
       addStroke: (docId, stroke) => {
         // Debounce saveHistory cho strokes: chỉ lưu history nếu >1s kể từ lần cuối
@@ -380,6 +435,78 @@ export const useCanvasStore = create<CanvasState>()(
         });
       },
 
+      removeStrokes: (docId, strokeIds) => {
+        get().saveHistory(docId);
+        set((state) => {
+          const page = state.pages[docId];
+          if (!page) return state;
+          const idSet = new Set(strokeIds);
+          return {
+            pages: {
+              ...state.pages,
+              [docId]: { ...page, strokes: (page.strokes || []).filter(s => !idSet.has(s.id)) }
+            }
+          };
+        });
+      },
+
+      removeShapes: (docId, shapeIds) => {
+        get().saveHistory(docId);
+        set((state) => {
+          const page = state.pages[docId];
+          if (!page) return state;
+          const idSet = new Set(shapeIds);
+          return {
+            pages: {
+              ...state.pages,
+              [docId]: { ...page, shapes: (page.shapes || []).filter(s => !idSet.has(s.id)) }
+            }
+          };
+        });
+      },
+
+      moveStrokes: (docId, strokeIds, dx, dy) => {
+        set((state) => {
+          const page = state.pages[docId];
+          if (!page) return state;
+          const idSet = new Set(strokeIds);
+          return {
+            pages: {
+              ...state.pages,
+              [docId]: {
+                ...page,
+                strokes: page.strokes.map(s =>
+                  idSet.has(s.id)
+                    ? { ...s, points: s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) }
+                    : s
+                )
+              }
+            }
+          };
+        });
+      },
+
+      moveShapes: (docId, shapeIds, dx, dy) => {
+        set((state) => {
+          const page = state.pages[docId];
+          if (!page) return state;
+          const idSet = new Set(shapeIds);
+          return {
+            pages: {
+              ...state.pages,
+              [docId]: {
+                ...page,
+                shapes: (page.shapes || []).map(s =>
+                  idSet.has(s.id)
+                    ? { ...s, x: s.x + dx, y: s.y + dy }
+                    : s
+                )
+              }
+            }
+          };
+        });
+      },
+
       clearAll: (docId) => {
         get().saveHistory(docId);
         set((state) => {
@@ -394,42 +521,17 @@ export const useCanvasStore = create<CanvasState>()(
         });
       },
 
-      saveHistory: (docId) => set((state) => {
-        const page = state.pages[docId] || defaultPageData;
-        const docPast = state.past[docId] || [];
-        return {
-          past: { ...state.past, [docId]: [...docPast, page].slice(-15) },
-          future: { ...state.future, [docId]: [] }
-        };
-      }),
+      saveHistory: (docId) => {
+        // Handled by automatic subscription in useHistoryStore.ts
+      },
 
-      undo: (docId) => set((state) => {
-        const docPast = state.past[docId] || [];
-        if (docPast.length === 0) return state;
-        const previous = docPast[docPast.length - 1];
-        const newPast = docPast.slice(0, -1);
-        const docFuture = state.future[docId] || [];
-        const current = state.pages[docId] || defaultPageData;
-        return {
-          pages: { ...state.pages, [docId]: previous },
-          past: { ...state.past, [docId]: newPast },
-          future: { ...state.future, [docId]: [current, ...docFuture] }
-        };
-      }),
+      undo: (docId) => {
+        useHistoryStore.getState().globalUndo();
+      },
 
-      redo: (docId) => set((state) => {
-        const docFuture = state.future[docId] || [];
-        if (docFuture.length === 0) return state;
-        const next = docFuture[0];
-        const newFuture = docFuture.slice(1);
-        const docPast = state.past[docId] || [];
-        const current = state.pages[docId] || defaultPageData;
-        return {
-          pages: { ...state.pages, [docId]: next },
-          past: { ...state.past, [docId]: [...docPast, current] },
-          future: { ...state.future, [docId]: newFuture }
-        };
-      }),
+      redo: (docId) => {
+        useHistoryStore.getState().globalRedo();
+      },
 
     }),
     {

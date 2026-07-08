@@ -33,6 +33,9 @@ export const Ribbon: React.FC = () => {
   }, [isMobile]);
   const [showBackstage, setShowBackstage] = useState<Tab | false>(false);
   
+  const immersivePlaylist = useWorkspaceStore(state => state.immersivePlaylist);
+  const setImmersivePlaylist = useWorkspaceStore(state => state.setImmersivePlaylist);
+  
   // Handle Ctrl+P shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -194,6 +197,7 @@ export const Ribbon: React.FC = () => {
 
   return (
     <>
+      <ImmersiveReaderModal isOpen={!!immersivePlaylist} onClose={() => setImmersivePlaylist(null)} text={''} />
       {showBackstage && <BackstageView initialTab={showBackstage as Tab} onClose={() => setShowBackstage(false)} />}
       {showFindReplace && <FindReplaceModal initialMode={findReplaceMode} onClose={() => setShowFindReplace(false)} />}
       
@@ -1066,7 +1070,7 @@ const ViewRibbonContent = () => {
   const activeNoteId = useWorkspaceStore(state => state.activeNoteId);
   const activeEditor = useEditorStore(state => state.activeEditor);
   const { setZoom, setPageColor, setGridPattern, setPaperSize, getPageData } = useCanvasStore();
-  const [showImmersive, setShowImmersive] = useState(false);
+  const setImmersivePlaylist = useWorkspaceStore(state => state.setImmersivePlaylist);
   const [paperDropdownOpen, setPaperDropdownOpen] = useState(false);
   const paperBtnRef = useRef<HTMLButtonElement>(null);
   const [paperCoords, setPaperCoords] = useState({ top: 0, left: 0 });
@@ -1085,7 +1089,29 @@ const ViewRibbonContent = () => {
     if ('documentPictureInPicture' in window) {
       try {
         const pipWindow = await (window as any).documentPictureInPicture.requestWindow({ width: 400, height: 600 });
-        pipWindow.document.body.innerHTML = `<div style="padding: 20px; font-family: sans-serif;"><h3>NoteGravity PiP</h3><div>${activeEditor?.getHTML() || 'Không có nội dung'}</div></div>`;
+        
+        let htmlContent = 'Không có nội dung';
+        if (activeEditor && activeEditor.getText().trim()) {
+          htmlContent = activeEditor.getHTML();
+        } else {
+          const editors = document.querySelectorAll('.canvas-tiptap-container .ProseMirror');
+          if (editors.length > 0) {
+            const sorted = Array.from(editors).sort((a, b) => {
+              const rectA = a.getBoundingClientRect();
+              const rectB = b.getBoundingClientRect();
+              if (Math.abs(rectA.top - rectB.top) < 20) return rectA.left - rectB.left;
+              return rectA.top - rectB.top;
+            });
+            htmlContent = sorted.map(el => el.innerHTML).join('<hr style="margin: 16px 0; border: none; border-top: 1px dashed #ccc;" />');
+          }
+        }
+        
+        pipWindow.document.body.innerHTML = `
+          <div style="padding: 20px; font-family: sans-serif; color: #333; line-height: 1.6;">
+            <h3 style="margin-top: 0; color: #6366f1; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">NoteGravity PiP</h3>
+            <div>${htmlContent}</div>
+          </div>
+        `;
       } catch (err) {
         alert('Lỗi khi mở chế độ Always On Top: ' + err);
       }
@@ -1111,10 +1137,28 @@ const ViewRibbonContent = () => {
 
   const gridLabel = currentGridPattern === 'none' ? 'Không' : currentGridPattern === 'rule' ? 'Dòng kẻ' : 'Lưới';
 
+  const getCanvasText = () => {
+    if (activeEditor) {
+      const text = activeEditor.getText();
+      if (text.trim()) return text;
+    }
+    
+    const editors = document.querySelectorAll('.canvas-tiptap-container .ProseMirror');
+    if (editors.length > 0) {
+      const sorted = Array.from(editors).sort((a, b) => {
+        const rectA = a.getBoundingClientRect();
+        const rectB = b.getBoundingClientRect();
+        if (Math.abs(rectA.top - rectB.top) < 20) return rectA.left - rectB.left;
+        return rectA.top - rectB.top;
+      });
+      return sorted.map(el => (el as HTMLElement).innerText || '').filter(t => t.trim().length > 0).join('. ');
+    }
+    
+    return '';
+  };
+
   return (
     <>
-      <ImmersiveReaderModal isOpen={showImmersive} onClose={() => setShowImmersive(false)} text={activeEditor?.getText() || ''} />
-
       <div className="ribbon-group" style={{ height: '70px', alignItems: 'flex-start' }}>
         <button className="ribbon-btn" onClick={() => { if (document.fullscreenElement) document.exitFullscreen(); }} style={{ padding: '4px 8px' }} title="Thoát toàn màn hình (Esc)">
           <div style={{ width: '24px', height: '24px', border: '2px solid #6b7280', marginBottom: '4px', position: 'relative' }}>
@@ -1139,7 +1183,14 @@ const ViewRibbonContent = () => {
       </div>
 
       <div className="ribbon-group" style={{ height: '70px', alignItems: 'flex-start' }}>
-        <button className="ribbon-btn" onClick={() => setShowImmersive(true)} style={{ padding: '4px 8px' }} title="Đọc văn bản thành tiếng (Immersive Reader – F9)">
+        <button className="ribbon-btn" onClick={() => {
+          const text = getCanvasText();
+          if (text) {
+             new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU5LjI3LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIwDk5OUAAAAAAAAAAAAAAAAAAAAAADhIWEgAAAAAAAAAAAAAAABfX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19f//OEAAAOEzR0AALoABQAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAA//OEAAP8zR0AALoABQAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAA//OEAAAAAA==').play().catch(()=>{});
+             window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+             setImmersivePlaylist([{ text, nodeId: activeNoteId || '' }]);
+          }
+        }} style={{ padding: '4px 8px' }} title="Đọc văn bản thành tiếng (Immersive Reader – F9)">
           <Ear size={24} color="#8b5cf6" style={{ marginBottom: '4px' }} />
           <span style={{ fontSize: '12px' }}>Immersive</span>
         </button>

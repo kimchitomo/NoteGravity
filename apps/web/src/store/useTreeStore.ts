@@ -129,6 +129,7 @@ interface TreeState {
   restoreSnapshot: (snapshot: { treeData: TreeNode[], noteContents: Record<string, string> }, mode: 'global' | 'local', targetDocId?: string) => void;
   addActionLog: (action: string, noteTitle: string, docId?: string) => void;
   addRootNode: (titleOrType: string, title?: string) => void;
+  addImportedNodes: (nodes: TreeNode[]) => void;
   addNode: (parentId: string, type: 'notebook' | 'note', title: string) => void;
   deleteNode: (id: string) => void;
   hideNode: (id: string) => void;
@@ -416,9 +417,42 @@ export const useTreeStore = create<TreeState>()(
     return { data: newData, deletedNodes: newDeleted };
   }),
 
-  permanentlyDelete: (id) => set((state) => ({
-    deletedNodes: state.deletedNodes.filter(e => e.node.id !== id)
-  })),
+  permanentlyDelete: (id) => set((state) => {
+    const entry = state.deletedNodes.find(e => e.node.id === id);
+    if (entry) {
+      const collectAllIds = (node: TreeNode): string[] => {
+        let ids = [node.id];
+        if (node.children) {
+          node.children.forEach(child => {
+            ids = ids.concat(collectAllIds(child));
+          });
+        }
+        return ids;
+      };
+      
+      const idsToDelete = collectAllIds(entry.node);
+      
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        caches.open('tts-offline-cache').then(async (cache) => {
+          try {
+            const requests = await cache.keys();
+            for (const req of requests) {
+              const url = new URL(req.url);
+              const nodeId = url.searchParams.get('nodeId');
+              if (nodeId && idsToDelete.includes(nodeId)) {
+                await cache.delete(req);
+              }
+            }
+          } catch (e) {
+            console.error('Lỗi khi xóa cache offline cho node bị xóa vĩnh viễn:', e);
+          }
+        });
+      }
+    }
+    return {
+      deletedNodes: state.deletedNodes.filter(e => e.node.id !== id)
+    };
+  }),
 
   selectRange: (id) => set((state) => {
     if (!state.anchorId) return { selectedIds: new Set([id]), anchorId: id };
@@ -649,6 +683,22 @@ export const useTreeStore = create<TreeState>()(
     }, ...state.actionLog];
     if (newLog.length > 30) newLog = newLog.slice(0, 30);
     return { actionLog: newLog };
+  }),
+
+  addImportedNodes: (nodes) => set((state) => {
+    let newLog = [{ 
+      id: Math.random().toString(36).substring(2, 9), 
+      timestamp: Date.now(), 
+      action: 'Imported data', 
+      noteTitle: `${nodes.length} items`,
+      snapshot: createSnapshot(state.data) 
+    }, ...state.actionLog];
+    if (newLog.length > 50) newLog = newLog.slice(0, 50);
+    
+    return { 
+      data: [...state.data, ...nodes],
+      actionLog: newLog,
+    };
   }),
 
   addRootNode: (titleOrType, title) => set((state) => {

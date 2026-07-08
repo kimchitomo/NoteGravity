@@ -35,12 +35,26 @@ self.onmessage = async (event: MessageEvent) => {
         if (!synthesizer) {
             // Wait for initialization or trigger it
             if (!isInitializing) {
-                 self.postMessage({ status: 'error', error: 'Synthesizer not initialized', id });
-                 return;
-            }
-            // Simple wait (not robust, but mostly it should be pre-initialized)
-            while (isInitializing) {
-                await new Promise(resolve => setTimeout(resolve, 100));
+                 isInitializing = true;
+                 self.postMessage({ status: 'loading' });
+                 try {
+                     synthesizer = await pipeline('text-to-speech', 'Xenova/mms-tts-vie', {
+                         device: 'wasm' as any,
+                         progress_callback: (x: any) => {
+                             self.postMessage({ status: 'progress', data: x });
+                         }
+                     });
+                     self.postMessage({ status: 'loaded' });
+                 } catch (error: any) {
+                     self.postMessage({ status: 'error', error: error.message || error.toString() });
+                     isInitializing = false;
+                     return;
+                 }
+                 isInitializing = false;
+            } else {
+                 while (isInitializing) {
+                     await new Promise(resolve => setTimeout(resolve, 100));
+                 }
             }
             if (!synthesizer) {
                  self.postMessage({ status: 'error', error: 'Failed to initialize synthesizer', id });

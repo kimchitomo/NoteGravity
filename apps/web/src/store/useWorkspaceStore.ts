@@ -4,9 +4,11 @@ import { persist } from 'zustand/middleware';
 interface WorkspaceState {
   activeNoteId: string | null;
   isSidebarOpen: boolean;
+  immersivePlaylist: { text: string; nodeId: string }[] | null;
   setActiveNoteId: (id: string | null) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (isOpen: boolean) => void;
+  setImmersivePlaylist: (playlist: { text: string; nodeId: string }[] | null) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()(
@@ -14,9 +16,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     (set) => ({
       activeNoteId: null,
       isSidebarOpen: false, // Default closed on mobile, ignored on desktop
+      immersivePlaylist: null,
       setActiveNoteId: (id) => set({ activeNoteId: id }),
       toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
       setSidebarOpen: (isOpen) => set({ isSidebarOpen: isOpen }),
+      setImmersivePlaylist: (playlist) => set({ immersivePlaylist: playlist }),
     }),
     {
       name: 'workspace-storage',

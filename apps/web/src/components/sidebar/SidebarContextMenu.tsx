@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useTreeStore } from '../../store/useTreeStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
-import { Edit2, Eye, Trash2, Copy, Scissors, Clipboard, MoveRight, CopyPlus, Image as ImageIcon, ArrowUp, ArrowDown, Mail, Plus, EyeOff, Eye as EyeIcon, BrainCircuit, ListOrdered, Files, Clock } from 'lucide-react';
+import { Edit2, Eye, Trash2, Copy, Scissors, Clipboard, MoveRight, CopyPlus, Image as ImageIcon, ArrowUp, ArrowDown, Mail, Plus, EyeOff, Eye as EyeIcon, BrainCircuit, ListOrdered, Files, Clock, Ear } from 'lucide-react';
 
 export const SidebarContextMenu = () => {
   const { 
@@ -12,7 +12,7 @@ export const SidebarContextMenu = () => {
     moveNodeUp, moveNodeDown, openDestinationModal, openIconPicker, data, openMindmapModal, numberChildNotes, duplicateNode, selectedIds, openSchedulePinModal
   } = useTreeStore();
   
-  const { setActiveNoteId } = useWorkspaceStore();
+  const { setActiveNoteId, setImmersivePlaylist } = useWorkspaceStore();
   
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -116,6 +116,88 @@ export const SidebarContextMenu = () => {
     if (action === 'ai_mindmap') openMindmapModal(contextMenuNodeId);
     if (action === 'number_children') numberChildNotes(contextMenuNodeId);
     
+    if (action === 'read_aloud') {
+      const playlist: { text: string; nodeId: string }[] = [];
+      const findNode = (nodes: any[], id: string): any => {
+        for (const n of nodes) {
+          if (n.id === id) return n;
+          if (n.children) {
+            const found = findNode(n.children, id);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      const rootNode = findNode(data, contextMenuNodeId);
+      
+      const buildPlaylist = (node: any) => {
+        // Add title
+        if (node.title) {
+           playlist.push({ text: node.title, nodeId: node.id });
+        }
+        // Add content if note
+        if (node.type === 'note') {
+           let allHtml = '';
+           let hasContainers = false;
+           
+           try {
+             const canvasDataStr = localStorage.getItem('canvas-storage');
+             if (canvasDataStr) {
+               const canvasData = JSON.parse(canvasDataStr);
+               const page = canvasData.state?.pages?.[node.id];
+               if (page && page.containers && page.containers.length > 0) {
+                 hasContainers = true;
+                 // Sort containers by Y then X to read top-to-bottom, left-to-right
+                 const sorted = [...page.containers].sort((a: any, b: any) => {
+                    if (Math.abs(a.y - b.y) > 50) return a.y - b.y;
+                    return a.x - b.x;
+                 });
+                 sorted.forEach((c: any) => {
+                   const cHtml = localStorage.getItem(`note-content-${node.id}-${c.id}`);
+                   if (cHtml) allHtml += ' <br> ' + cHtml;
+                 });
+               }
+             }
+           } catch (e) {}
+
+           // Only use legacy content if there are no containers
+           if (!hasContainers) {
+             allHtml = localStorage.getItem(`note-content-${node.id}`) || '';
+           }
+
+           if (allHtml) {
+             // Thay thế các thẻ block bằng dấu ngắt dòng để tránh dính chữ khi dùng textContent
+             const processedHtml = allHtml
+               .replace(/<\/p>/g, '</p>\n')
+               .replace(/<\/h[1-6]>/g, '$&\n')
+               .replace(/<br\s*\/?>/g, '\n')
+               .replace(/<\/div>/g, '</div>\n');
+
+             const div = document.createElement('div');
+             div.innerHTML = processedHtml;
+             // Add spaces between blocks so words don't stick together
+             const content = (div.textContent || '').replace(/\n/g, '. ').replace(/\s+/g, ' ');
+             if (content.trim()) {
+               playlist.push({ text: content, nodeId: node.id });
+             }
+           }
+        }
+        // Recursively add children
+        if (node.children) {
+           node.children.forEach((c: any) => buildPlaylist(c));
+        }
+      };
+      
+      if (rootNode) {
+        buildPlaylist(rootNode);
+        if (playlist.length > 0) {
+           new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU5LjI3LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIwDk5OUAAAAAAAAAAAAAAAAAAAAAADhIWEgAAAAAAAAAAAAAAABfX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19fX19f//OEAAAOEzR0AALoABQAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAA//OEAAP8zR0AALoABQAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAA//OEAAAAAA==').play().catch(()=>{});
+           window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+           setImmersivePlaylist(playlist);
+        }
+      }
+    }
+    
     closeContextMenu();
   };
 
@@ -160,6 +242,7 @@ export const SidebarContextMenu = () => {
       <MenuItem icon={Plus} label="Thêm Thư mục" action="add_folder" />
       <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '4px 0' }} />
       <MenuItem icon={BrainCircuit} label="AI MindMap" action="ai_mindmap" />
+      <MenuItem icon={Ear} label="Đọc nội dung (Read Aloud)" action="read_aloud" />
       <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '4px 0' }} />
       <MenuItem icon={Eye} label="Xem" action="view" />
       <MenuItem icon={Edit2} label="Sửa (Đổi tên)" action="edit" />

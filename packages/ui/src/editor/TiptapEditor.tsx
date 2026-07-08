@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, Extension } from '@tiptap/react';
+import { Plugin, PluginKey } from 'prosemirror-state';
+import { Decoration, DecorationSet } from 'prosemirror-view';
 import StarterKit from '@tiptap/starter-kit';
 import Table from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
@@ -42,6 +44,38 @@ const getRandomColor = () => {
   const colors = ['#958DF1', '#F98181', '#FBCE76', '#8AE39C', '#84AEE3'];
   return colors[Math.floor(Math.random() * colors.length)];
 };
+
+export const ReadingHighlightPluginKey = new PluginKey('readingHighlight');
+
+const ReadingHighlightExtension = Extension.create({
+  name: 'readingHighlight',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: ReadingHighlightPluginKey,
+        state: {
+          init() { return DecorationSet.empty; },
+          apply(tr, oldState) {
+            const highlightRange = tr.getMeta(ReadingHighlightPluginKey);
+            if (highlightRange === 'CLEAR') return DecorationSet.empty;
+            if (highlightRange) {
+              const { from, to } = highlightRange;
+              return DecorationSet.create(tr.doc, [
+                Decoration.inline(from, to, { class: 'reading-highlight', style: 'background-color: rgba(253, 224, 71, 0.4);' })
+              ]);
+            }
+            return oldState.map(tr.mapping, tr.doc);
+          }
+        },
+        props: {
+          decorations(state) {
+            return this.getState(state);
+          }
+        }
+      })
+    ];
+  }
+});
 
 export interface TiptapEditorProps {
   docId?: string;
@@ -94,9 +128,16 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
       FontSize,
       CanvasExtension, // Tích hợp TLDraw NodeView
       DocumentLinkExtension,
+      ReadingHighlightExtension,
     ],
     onFocus({ editor }) {
       if (onFocus) onFocus(editor);
+      window.dispatchEvent(new CustomEvent('capture-global-snapshot'));
+    },
+    onSelectionUpdate({ editor }) {
+      const { from } = editor.state.selection;
+      const textBefore = editor.state.doc.textBetween(0, from, '\n');
+      window.dispatchEvent(new CustomEvent('editor-cursor-changed', { detail: { textBefore, docId } }));
     },
     onUpdate({ editor, transaction }) {
       const newHeadings: any[] = [];
@@ -118,12 +159,17 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
         onContentChange();
       }
     },
-    onFocus: () => {
-      window.dispatchEvent(new CustomEvent('capture-global-snapshot'));
-    },
     // Không dùng 'content' tĩnh khi dùng Collaboration
-    // content: '<p>Bắt đầu nhập nội dung tại đây...</p>',
     content: localStorage.getItem(`note-content-${docId}`) || (autoFocus ? '<p></p>' : '<p>Bắt đầu nhập nội dung tại đây...</p>'),
+    editorProps: {
+      handleClick(view, pos, event) {
+        const textBefore = view.state.doc.textBetween(0, pos, '\n');
+        const textAfter = view.state.doc.textBetween(pos, view.state.doc.content.size, '\n');
+        const rawSnippet = textAfter.substring(0, 50).trim();
+        window.dispatchEvent(new CustomEvent('immersive-reader-click', { detail: { docId, textBefore, rawSnippet } }));
+        return false;
+      }
+    },
   }, [docId]); // Re-create editor when docId changes
 
   useEffect(() => {
@@ -200,6 +246,9 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
              });
              chain.run();
              
+             // Update history
+             window.dispatchEvent(new CustomEvent('capture-global-snapshot'));
+             
              // Update local storage
              localStorage.setItem(`note-content-${docId}`, editor.getHTML());
              if (onContentChange) onContentChange();
@@ -212,6 +261,68 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
       window.removeEventListener('canvas-replace-all', handleReplaceAll);
     };
   }, [editor, docId, onContentChange]);
+
+  // Listen for immersive reader highlight
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleHighlight = (e: any) => {
+      const { docId: targetDoc, text } = e.detail;
+      if (targetDoc && (docId === targetDoc || docId.startsWith(`${targetDoc}-`))) {
+         let cleanTarget = text.replace(/[^a-zA-Z0-9\u00C0-\u1EF9]/g, '').toLowerCase();
+         if (!cleanTarget) return;
+
+         let docText = '';
+         const posMap: number[] = [];
+         editor.state.doc.descendants((node, pos) => {
+            if (node.isText && node.text) {
+               for (let i = 0; i < node.text.length; i++) {
+                  const char = node.text[i];
+                  if (/[a-zA-Z0-9\u00C0-\u1EF9]/.test(char)) {
+                      docText += char.toLowerCase();
+                      posMap.push(pos + i);
+                  }
+               }
+            }
+         });
+
+         const matchIdx = docText.indexOf(cleanTarget);
+         if (matchIdx !== -1) {
+            const fromPos = posMap[matchIdx];
+            const toPos = posMap[matchIdx + cleanTarget.length - 1] + 1;
+            
+            // Set reading highlight decoration without changing selection or focus
+            editor.view.dispatch(editor.state.tr.setMeta(ReadingHighlightPluginKey, { from: fromPos, to: toPos }));
+            
+            // Avoid smooth scroll since highlight updates every second and smooth scrolling will lag
+            const view = editor.view;
+            try {
+              const domNode = view.domAtPos(fromPos).node as Element;
+              if (domNode && domNode.scrollIntoView) {
+                domNode.scrollIntoView({ behavior: 'auto', block: 'center' });
+              } else {
+                view.dispatch(editor.state.tr.scrollIntoView());
+              }
+            } catch(e) {
+              view.dispatch(editor.state.tr.scrollIntoView());
+            }
+         }
+      }
+    };
+
+    const handleClearHighlight = () => {
+      if (editor) {
+        editor.view.dispatch(editor.state.tr.setMeta(ReadingHighlightPluginKey, 'CLEAR'));
+      }
+    };
+
+    window.addEventListener('canvas-highlight-text', handleHighlight);
+    window.addEventListener('canvas-clear-highlight', handleClearHighlight);
+    return () => {
+      window.removeEventListener('canvas-highlight-text', handleHighlight);
+      window.removeEventListener('canvas-clear-highlight', handleClearHighlight);
+    };
+  }, [editor, docId]);
 
   return (
     <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: autoWidth ? 'max-content' : '100%', minWidth: autoWidth ? 'min-content' : '100%', backgroundColor: 'transparent' }}>

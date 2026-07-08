@@ -44,6 +44,36 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
     });
   };
 
+  const [isReadingTarget, setIsReadingTarget] = useState(false);
+
+  useEffect(() => {
+    const handleHighlight = (e: any) => {
+      const { docId, text } = e.detail;
+      if (docId === node.id && text === node.title) {
+         setIsReadingTarget(true);
+      } else {
+         setIsReadingTarget(false);
+      }
+    };
+    const handleClear = () => setIsReadingTarget(false);
+    
+    window.addEventListener('canvas-highlight-text', handleHighlight);
+    window.addEventListener('canvas-clear-highlight', handleClear);
+    return () => {
+      window.removeEventListener('canvas-highlight-text', handleHighlight);
+      window.removeEventListener('canvas-clear-highlight', handleClear);
+    };
+  }, [node.id, node.title]);
+
+  useEffect(() => {
+    if (isReadingTarget) {
+      const el = document.querySelector(`[data-node-id="${node.id}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [isReadingTarget, node.id]);
+
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
@@ -321,7 +351,7 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
           </div>
         ) : (
           <>
-            <span style={{ fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: node.type === 'notebook' ? 500 : 400, flex: 1 }}>
+            <span style={{ fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: node.type === 'notebook' ? 500 : 400, flex: 1, backgroundColor: isReadingTarget ? 'rgba(253, 224, 71, 0.4)' : 'transparent', borderRadius: '2px' }}>
               {node.title}
             </span>
             {isHovered && tooltipPos && (

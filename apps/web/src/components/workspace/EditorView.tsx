@@ -43,6 +43,27 @@ export const EditorView = () => {
     return pageDataRaw ? { ...defaults, ...pageDataRaw, shapes: pageDataRaw.shapes || [] } : defaults;
   }, [pageDataRaw]);
 
+  // Migrate legacy main content to a NoteContainer
+  useEffect(() => {
+    if (!docId) return;
+    const legacyContent = localStorage.getItem(`note-content-${docId}`);
+    if (legacyContent && legacyContent.trim() !== '' && legacyContent !== '<p></p>') {
+      // Check if we already migrated (to avoid creating duplicates if they undo/redo)
+      const migrated = localStorage.getItem(`migrated-note-${docId}`);
+      // Only migrate if there are no existing containers on the page
+      if (!migrated && pageData.containers.length === 0) {
+        const newId = addContainer(docId, 40, 90);
+        localStorage.setItem(`note-content-${docId}-${newId}`, legacyContent);
+        localStorage.setItem(`migrated-note-${docId}`, 'true');
+        // Do not delete legacy content yet so that older history snapshots or readers don't break immediately,
+        // but we've marked it migrated so it won't duplicate again.
+      } else if (!migrated && pageData.containers.length > 0) {
+        // If there are already containers (like from an import), just mark as migrated
+        localStorage.setItem(`migrated-note-${docId}`, 'true');
+      }
+    }
+  }, [docId, addContainer, pageData.containers.length]);
+
   const [canvasBounds, setCanvasBounds] = useState({ width: 794, height: 1123 });
 
   useEffect(() => {

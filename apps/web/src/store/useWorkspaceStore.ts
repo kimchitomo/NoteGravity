@@ -25,6 +25,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     {
       name: 'workspace-storage',
       version: 2,
+      partialize: (state) => ({ 
+        activeNoteId: state.activeNoteId, 
+        isSidebarOpen: state.isSidebarOpen 
+      }),
     }
   )
 );

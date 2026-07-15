@@ -1,0 +1,7 @@
+- `[x]` 1. Cài đặt thư viện `dns2` để chạy máy chủ DNS cục bộ.
+- `[x]` 2. Viết file `dns-server.js` có khả năng tự động nhận diện IP nội bộ.
+- `[x]` 3. Chạy `mkcert` để cấp phát chứng chỉ SSL (Root CA và Certificate) cho `NoteAntigravity.com`.
+- `[x]` 4. Cấu hình lại `vite.config.ts` để gỡ bỏ `basic-ssl` và dùng khóa `mkcert` vừa tạo.
+- `[x]` 5. Copy `rootCA.pem` vào thư mục `public` của Vite.
+- `[x]` 6. Tái khởi động môi trường `dev` và kiểm tra hệ thống.
+- `[x]` 7. Viết tài liệu hướng dẫn (Walkthrough) chi tiết cách điện thoại kết nối và cài đặt chứng chỉ.

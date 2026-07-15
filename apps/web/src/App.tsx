@@ -2,15 +2,36 @@ import React from 'react';
 import { WorkspaceLayout } from './layouts/WorkspaceLayout';
 import { useTreeStore, initAsrWorker } from './store/useTreeStore';
 import { useCanvasStore } from './store/useCanvasStore';
+import { useWorkspaceStore } from './store/useWorkspaceStore';
 import { useHistoryStore, buildSnapshot } from './store/useHistoryStore';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { initSocketListeners, socket } from './lib/socket';
+import localforage from 'localforage';
 
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
   constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
   static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
   render() {
     if (this.state.hasError) {
-      return <div style={{ color: 'red', padding: '20px' }}><h1>React Error</h1><pre>{this.state.error?.stack}</pre></div>;
+      return (
+        <div style={{ color: '#991b1b', padding: '40px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
+          <h1 style={{ fontSize: '24px', marginBottom: '16px' }}>⚠️ Hệ thống gặp sự cố hiển thị (React Error)</h1>
+          <p style={{ marginBottom: '20px' }}>Dữ liệu bộ nhớ tạm trên thiết bị này có thể đang bị kẹt định dạng. Vui lòng bấm nút bên dưới để khôi phục tự động (Dữ liệu gốc vẫn an toàn trên máy chủ).</p>
+          <button 
+            onClick={() => { 
+              localStorage.removeItem('tree-store');
+              localStorage.removeItem('noteantigravity-has-data');
+              window.location.reload(); 
+            }}
+            style={{ padding: '12px 24px', background: '#dc2626', color: 'white', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}
+          >
+            Khôi phục bộ nhớ & Tải lại trang
+          </button>
+          <pre style={{ marginTop: '30px', fontSize: '12px', background: '#fee2e2', padding: '16px', borderRadius: '4px', overflowX: 'auto' }}>
+            {this.state.error?.stack}
+          </pre>
+        </div>
+      );
     }
     return this.props.children;
   }
@@ -24,6 +45,41 @@ function App() {
       initAsrWorker(offlineAsrDevice);
     }
   }, [offlineAsrDevice]);
+
+  // Khởi t�  // 1. Tự động chuyển đổi các note cũ từ localStorage sang IndexedDB (localforage) để giải phóng 5MB limit
+  useEffect(() => {
+    const keysToMigrate: { key: string; val: string }[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('note-content-')) {
+        const val = localStorage.getItem(key);
+        if (val) {
+          keysToMigrate.push({ key, val });
+        }
+      }
+    }
+    
+    if (keysToMigrate.length > 0) {
+      console.log(`[Migration] Chuyển đổi ${keysToMigrate.length} ghi chú sang IndexedDB...`);
+      const promises = keysToMigrate.map(item => {
+        return localforage.setItem(item.key, item.val).then(() => {
+          localStorage.removeItem(item.key);
+        });
+      });
+      Promise.all(promises).then(() => {
+        console.log('[Migration] Chuyển đổi thành công! Giải phóng bộ nhớ localStorage.');
+      }).catch(err => {
+        console.error('[Migration] Lỗi chuyển đổi ghi chú:', err);
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    // 1. Initialize offline-first sync manager
+    import('./lib/sync/SyncManager').then(() => {
+      console.log('[App] Initialized SyncManager for offline-first sync.');
+    });
+  }, []);
 
   // Global Undo/Redo
   useEffect(() => {
@@ -102,6 +158,28 @@ function App() {
       if (treeDebounceTimer) clearTimeout(treeDebounceTimer);
       if (canvasDebounceTimer) clearTimeout(canvasDebounceTimer);
     };
+  }, []);
+
+  // Web Share Target - Xử lý file/text được share từ App khác
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('shared') === 'true') {
+      import('idb').then(async ({ openDB }) => {
+        try {
+          const db = await openDB('ShareTargetDB', 1);
+          const allShared = await db.getAll('shared_files');
+          
+          if (allShared && allShared.length > 0) {
+            useTreeStore.getState().openShareDestinationModal(allShared);
+          }
+          
+          // Xóa tham số shared=true khỏi URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (error) {
+          console.error('Lỗi khi đọc file share từ IndexedDB:', error);
+        }
+      });
+    }
   }, []);
 
   return (

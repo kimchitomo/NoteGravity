@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  note-antigravity-single:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: note_antigravity_single
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+      # Uncomment to use rclone backups:
+      # - ./rclone.conf:/root/.config/rclone/rclone.conf:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3000

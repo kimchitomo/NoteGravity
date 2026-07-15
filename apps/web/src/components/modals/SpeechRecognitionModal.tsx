@@ -26,6 +26,7 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
   const interimTranscriptRef = useRef<string>('');
   const ignoredResultIndices = useRef<Set<number>>(new Set());
   const currentResultIndex = useRef<number>(-1);
+  const processedFinalTranscripts = useRef<Map<number, string>>(new Map());
 
   const handleTextOrCursorChange = (newText?: string) => {
       const currentText = newText !== undefined ? newText : (textareaRef.current ? textareaRef.current.value : inputValueRef.current);
@@ -99,15 +100,16 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
   const startListening = async () => {
     if (isTranscribing) return;
     
-    if (isOnline && typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
+    if (isOnline && typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       // Use Online Engine
-      const SpeechRecognition = (window as any).webkitSpeechRecognition;
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'vi-VN';
       
       ignoredResultIndices.current.clear();
+      processedFinalTranscripts.current.clear();
       currentResultIndex.current = -1;
       
       const currentText = textareaRef.current ? textareaRef.current.value : inputValueRef.current;
@@ -128,12 +130,26 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
         currentResultIndex.current = event.results.length - 1;
         
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (ignoredResultIndices.current.has(i)) continue;
+          const transcript = event.results[i][0].transcript;
+          const prevFinal = processedFinalTranscripts.current.get(i);
           
+          if (prevFinal && prevFinal !== transcript) {
+              // ARRAY WAS RESET! Android Chrome sometimes clears the results array internally.
+              // If the transcript for this index changed, it's a completely new sentence!
+              processedFinalTranscripts.current.clear();
+          }
+        }
+        
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (ignoredResultIndices.current.has(i)) continue;
+          if (processedFinalTranscripts.current.has(i)) continue; // Ngăn chặn nhảy chữ liên tiếp (duplicate results bug on Android)
+          
+          const transcript = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            finalTranscript += transcript;
+            processedFinalTranscripts.current.set(i, transcript);
           } else {
-            interimTranscript += event.results[i][0].transcript;
+            interimTranscript += transcript;
           }
         }
         
@@ -167,7 +183,12 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
         }, 0);
       };
 
-      recognition.onerror = () => {
+      recognition.onerror = (event: any) => {
+        if (event.error === 'not-allowed') {
+           alert('Trình duyệt đã chặn Micro. Vui lòng cấp quyền hoặc đảm bảo bạn đang dùng HTTPS (Secure Context) nếu truy cập qua mạng LAN.');
+        } else {
+           console.error('Speech recognition error:', event.error);
+        }
         if (recognitionRef.current === recognition) {
            setIsListening(false);
            setIsTranscribing(false);
@@ -183,9 +204,14 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
         }
       };
 
-      recognition.start();
-      recognitionRef.current = recognition;
-      setIsListening(true);
+      try {
+        recognition.start();
+        recognitionRef.current = recognition;
+        setIsListening(true);
+      } catch (err: any) {
+        console.error('Failed to start speech recognition:', err);
+        alert('Trình duyệt từ chối quyền truy cập Micro. Hãy kiểm tra quyền hoặc đảm bảo truy cập bằng HTTPS bảo mật.');
+      }
     } else {
       // Use Offline Engine
       try {
@@ -297,7 +323,7 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
 
   const modalContent = (
     <div 
-      style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }} 
+      style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }} 
       onMouseDown={(e) => { e.stopPropagation(); onClose(); }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -380,7 +406,7 @@ export const SpeechRecognitionModal: React.FC<SpeechRecognitionModalProps> = ({ 
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#4b5563', fontWeight: 500 }}>
-            {(!isOnline || typeof window === 'undefined' || !('webkitSpeechRecognition' in window)) && (
+            {(!isOnline || typeof window === 'undefined' || !('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) && (
               <>
                 <span>Lõi xử lý Offline:</span>
                 <select

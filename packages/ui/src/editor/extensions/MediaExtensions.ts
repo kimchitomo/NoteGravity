@@ -1,4 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core';
+import { ReactNodeViewRenderer } from '@tiptap/react';
+import { AudioNodeView, VideoNodeView, IframeNodeView } from './MediaNodeViews';
 
 export const AudioExtension = Node.create({
   name: 'audio',
@@ -22,6 +24,10 @@ export const AudioExtension = Node.create({
 
   renderHTML({ HTMLAttributes }) {
     return ['audio', mergeAttributes(HTMLAttributes), ['source', { src: HTMLAttributes.src }]];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(AudioNodeView);
   },
 
   addCommands() {
@@ -64,6 +70,10 @@ export const VideoExtension = Node.create({
     return ['video', mergeAttributes(HTMLAttributes), ['source', { src: HTMLAttributes.src }]];
   },
 
+  addNodeView() {
+    return ReactNodeViewRenderer(VideoNodeView);
+  },
+
   addCommands() {
     return {
       setVideo:
@@ -103,6 +113,10 @@ export const IframeExtension = Node.create({
 
   renderHTML({ HTMLAttributes }) {
     return ['iframe', mergeAttributes(HTMLAttributes)];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(IframeNodeView);
   },
 
   addCommands() {

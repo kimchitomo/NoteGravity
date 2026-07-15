@@ -23,7 +23,7 @@ export const PageTitleBlock: React.FC<PageTitleBlockProps> = ({ title, createdAt
         top: '20px', 
         left: '20px', 
         width: '800px', 
-        maxWidth: 'calc(100% - 40px)',
+        maxWidth: typeof window !== 'undefined' && window.innerWidth > 768 ? 'min(800px, calc(100vw - 300px))' : 'calc(100vw - 40px)',
         padding: '0', 
         backgroundColor: 'transparent',
         zIndex: 10

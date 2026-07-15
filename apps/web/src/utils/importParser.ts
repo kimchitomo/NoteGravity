@@ -334,7 +334,28 @@ export const parseDocx = async (file: File): Promise<ImportNode[]> => {
   try {
     const buffer = await file.arrayBuffer();
     
-    const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
+    const result = await mammoth.convertToHtml(
+      { arrayBuffer: buffer },
+      {
+        convertImage: mammoth.images.imgElement(async (image) => {
+          const arrayBuffer = await image.read();
+          const blob = new Blob([arrayBuffer as any], { type: image.contentType });
+          const fileId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+          const fileName = `image-${fileId}.${image.contentType.split('/')[1] || 'png'}`;
+          const file = new File([blob], fileName, { type: image.contentType });
+          
+          try {
+            const { uploadFileInChunks } = await import('../lib/chunkSync');
+            const url = await uploadFileInChunks(fileId, file);
+            return { src: url as string };
+          } catch (err) {
+            console.error('Failed to upload image during docx parse, fallback to base64', err);
+            const base64 = await image.read("base64");
+            return { src: `data:${image.contentType};base64,${base64}` };
+          }
+        })
+      }
+    );
     const html = result.value; 
     
     const parser = new DOMParser();

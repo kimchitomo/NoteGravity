@@ -7,6 +7,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { SidebarContextMenu } from './sidebar/SidebarContextMenu';
 import { EmailModal } from './modals/EmailModal';
 import { DestinationPickerModal } from './modals/DestinationPickerModal';
+import { ShareDestinationModal } from './modals/ShareDestinationModal';
 import { IconPickerModal } from './modals/IconPickerModal';
 import { AIMindmapModal } from './modals/AIMindmapModal';
 import { SchedulePinModal } from './modals/SchedulePinModal';
@@ -146,7 +147,7 @@ const ShortcutItem: React.FC<{ node: any, isPinned?: boolean }> = ({ node, isPin
 };
 
 export const Sidebar = () => {
-  const { data, moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected, closeContextMenu, emailModalNodeIds, destinationModalData, iconPickerNodeIds, mindmapModalNodeId, schedulePinModalNodeIds, addRootNode, pinnedIds, recentIds, pinSchedule, checkPinSchedule, stopPinSchedule } = useTreeStore();
+  const { data, moveFocusDown, moveFocusUp, moveFocusLeft, moveFocusRight, focusedId, setSelected, closeContextMenu, emailModalNodeIds, destinationModalData, iconPickerNodeIds, mindmapModalNodeId, schedulePinModalNodeIds, sharedDataQueue, addRootNode, pinnedIds, recentIds, pinSchedule, checkPinSchedule, stopPinSchedule } = useTreeStore();
   const { isSidebarOpen, setSidebarOpen } = useWorkspaceStore();
   const isMobile = useIsMobile();
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -486,6 +487,7 @@ export const Sidebar = () => {
       <SidebarContextMenu />
       {emailModalNodeIds && <EmailModal />}
       {destinationModalData && <DestinationPickerModal />}
+      {sharedDataQueue && <ShareDestinationModal />}
       {iconPickerNodeIds && <IconPickerModal />}
       {mindmapModalNodeId && <AIMindmapModal />}
       {schedulePinModalNodeIds && <SchedulePinModal />}

@@ -104,6 +104,9 @@ export const TreeItem: React.FC<TreeItemProps> = ({ node, level = 0, isHighlight
     if (hasChildren && !multi) {
       toggleExpand(node.id);
     }
+    
+    // Dispatch event for Immersive Reader to jump
+    window.dispatchEvent(new CustomEvent('immersive-reader-node-click', { detail: { nodeId: node.id } }));
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {

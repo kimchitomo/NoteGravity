@@ -6,6 +6,7 @@ import { parseFileToTree, ImportNode } from '../../utils/importParser';
 import { ImportMapperModal, ImportRule, ImportTarget } from '../modals/ImportMapperModal';
 import { useTreeStore, TreeNode } from '../../store/useTreeStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
+import localforage from 'localforage';
 interface BackstageViewProps {
   onClose: () => void;
   initialTab?: Tab;
@@ -317,17 +318,25 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
             }
           }
         }));
-
-        localStorage.setItem(`note-content-${id}-${containerId}`, finalHtml);
-        localStorage.setItem(`note-content-${id}`, finalHtml);
+        const pushFn = (window as any).SyncManager ? (window as any).SyncManager.pushUpdate.bind((window as any).SyncManager) : localforage.setItem;
+      
+        if (containerId) {
+          pushFn(`note-content-${id}-${containerId}`, finalHtml).catch((err: any) => {
+            console.error('Lỗi khi lưu note-content vào IndexedDB:', err);
+          });
+        } else {
+          pushFn(`note-content-${id}`, finalHtml).catch((err: any) => {
+            console.error('Lỗi khi lưu note-content vào IndexedDB:', err);
+          });
+        }
       }
     });
     
     if (newNodes.length > 0) {
       treeStore.addImportedNodes(newNodes);
-      alert(`Nhập thành công ${newNodes.length} thư mục/ghi chú gốc.`);
+      console.log(`[Import] Nhập thành công ${newNodes.length} thư mục/ghi chú gốc.`);
     } else {
-      alert('Không có dữ liệu nào được nhập.');
+      console.warn('[Import] Không có dữ liệu nào được nhập.');
     }
 
     setIsImportModalOpen(false);
@@ -336,7 +345,7 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
 
   const renderContent = () => {
     if (!previewImage) {
-      alert("Đang tải bản xem trước, vui lòng thử lại sau giây lát.");
+      console.warn('[Print] Đang tải bản xem trước, vui lòng thử lại sau giây lát.');
       return;
     }
 
@@ -345,7 +354,7 @@ export const BackstageView: React.FC<BackstageViewProps> = ({ onClose, initialTa
 
   const handlePrint = () => {
     if (!previewImage) {
-      alert("Đang tải bản xem trước, vui lòng thử lại sau giây lát.");
+      console.warn('[Print] Đang tải bản xem trước, vui lòng thử lại sau giây lát.');
       return;
     }
 

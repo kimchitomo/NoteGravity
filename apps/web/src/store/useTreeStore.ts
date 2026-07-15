@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import localforage from 'localforage';
 
 export interface TreeNode {
   id: string;
@@ -81,6 +82,7 @@ interface TreeState {
   iconPickerNodeIds: string[] | null;
   mindmapModalNodeId: string | null;
   schedulePinModalNodeIds: string[] | null;
+  sharedDataQueue: any[] | null;
   highlightedBranchId: string | null;
   lockedIds: Set<string>;
   readIds: Set<string>;
@@ -110,6 +112,8 @@ interface TreeState {
   setEditingNodeId: (id: string | null) => void;
   openDestinationModal: (ids: string[], action: 'move' | 'copy') => void;
   closeDestinationModal: () => void;
+  openShareDestinationModal: (data: any[]) => void;
+  closeShareDestinationModal: () => void;
   openIconPicker: (ids: string[]) => void;
   closeIconPicker: () => void;
   openMindmapModal: (id: string) => void;
@@ -214,13 +218,16 @@ const initTTSWorker = () => {
   if (!ttsWorker) {
     ttsWorker = new Worker(new URL('../workers/tts.worker.ts', import.meta.url), { type: 'module' });
     ttsWorker.onmessage = (e) => {
-        const { status, audio, sampling_rate, error, text } = e.data;
+        const { status, audio, sampling_rate, error, text, nodeId } = e.data;
         if (status === 'complete' && audio) {
             playAudio(audio, sampling_rate);
             
             if ('Notification' in window) {
               if (Notification.permission === 'granted') {
-                new Notification('NoteGravity', { body: text });
+                const notification = new Notification('NoteGravity', { body: text });
+                if (nodeId) {
+                   notification.onclick = () => playNodeContent(nodeId);
+                }
               }
             }
         } else if (status === 'error') {
@@ -246,10 +253,288 @@ export const terminateAsrWorker = () => {
   }
 };
 
-const announce = (message: string) => {
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.error('SW registration failed:', err);
+    });
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'PLAY_NODE_CONTENT' && event.data.nodeId) {
+            playNodeContent(event.data.nodeId);
+        }
+    });
+}
+
+const silentCacheItems = async (items: any[], data: TreeNode[]) => {
+    if (typeof window === 'undefined') return;
+    
+    const doCache = async () => {
+        try {
+            if (navigator.storage && navigator.storage.persist) {
+               const isPersisted = await navigator.storage.persisted();
+               if (!isPersisted) {
+                  await navigator.storage.persist();
+               }
+            }
+            const cache = await caches.open('tts-offline-cache');
+            
+            for (const item of items) {
+                const node = findNode(data, item.id);
+                if (!node) continue;
+                
+                const chunks: string[] = [];
+                let msg = `Đã ghim ${node.title || ''}`;
+                if (node.title) chunks.push(node.title);
+                
+                if (node.type === 'note') {
+                   let allHtml = '';
+                   try {
+                     const canvasDataStr = localStorage.getItem('canvas-storage');
+                     if (canvasDataStr) {
+                       const canvasData = JSON.parse(canvasDataStr);
+                       const page = canvasData.state?.pages?.[node.id];
+                       if (page && page.containers && page.containers.length > 0) {
+                         const sorted = [...page.containers].sort((a: any, b: any) => {
+                            if (Math.abs(a.y - b.y) > 50) return a.y - b.y;
+                            return a.x - b.x;
+                         });
+                         sorted.forEach((c: any) => {
+                           const cHtml = localStorage.getItem(`note-content-${node.id}-${c.id}`);
+                           if (cHtml) allHtml += ' <br> ' + cHtml;
+                         });
+                       }
+                     }
+                   } catch (e) {}
+
+                   if (!allHtml) {
+                     allHtml = localStorage.getItem(`note-content-${node.id}`) || '';
+                   }
+
+                   if (allHtml) {
+                     const div = document.createElement('div');
+                     div.innerHTML = allHtml;
+                     
+                     let firstChild = div.firstElementChild;
+                     while (firstChild && firstChild.textContent?.trim() === '') {
+                         firstChild = firstChild.nextElementSibling;
+                     }
+                     
+                     if (firstChild && firstChild.tagName === 'UL' && firstChild.getAttribute('data-type') === 'taskList') {
+                         const listItems = Array.from(firstChild.querySelectorAll('li'));
+                         const todoText = listItems.map(li => li.textContent?.trim() || '').filter(t => t).join('. ');
+                         if (todoText) {
+                             msg += `. Cần làm: ${todoText}`;
+                         }
+                     }
+
+                     const processedHtml = allHtml
+                       .replace(/<\/p>/g, '</p>\n')
+                       .replace(/<\/h[1-6]>/g, '$&\n')
+                       .replace(/<br\s*\/?>/g, '\n')
+                       .replace(/<\/div>/g, '</div>\n');
+
+                     div.innerHTML = processedHtml;
+                     const content = (div.textContent || '').replace(/\n/g, '. ').replace(/\s+/g, ' ');
+                     if (content.trim()) {
+                       chunks.push(content.trim());
+                     }
+                   }
+                }
+                
+                chunks.push(msg);
+                
+                const finalChunks: string[] = [];
+                chunks.forEach(text => {
+                    if (!text) return;
+                    const rawChunks = text.match(/[^.!?\n]+[.!?\n]*/g) || [text];
+                    rawChunks.map(c => c.trim()).filter(c => c.length > 0).forEach(c => {
+                        const parts = c.match(/.{1,200}(\s|$)/g) || [c];
+                        parts.map(p => p.trim()).filter(p => p.length > 0).forEach(p => {
+                            finalChunks.push(p);
+                        });
+                    });
+                });
+                
+                for (const chunk of finalChunks) {
+                    if (!chunk) continue;
+                    const url = `/api/tts?nodeId=${item.id}&ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=vi&client=gtx`;
+                    try {
+                        const existing = await cache.match(url);
+                        if (!existing) {
+                            await cache.add(url);
+                        }
+                    } catch (e) {}
+                }
+            }
+        } catch (err) {
+            console.error('Silent cache error:', err);
+        } finally {
+            window.dispatchEvent(new CustomEvent('tts-offline-cache-updated'));
+        }
+    };
+    
+    if (navigator.onLine) {
+        doCache();
+    }
+    
+    const onlineHandler = () => {
+        doCache();
+        window.removeEventListener('online', onlineHandler);
+    };
+    window.addEventListener('online', onlineHandler);
+};
+
+const playNodeContent = (nodeId: string) => {
+    const state = useTreeStore.getState();
+    const node = findNode(state.data, nodeId);
+    if (!node) return;
+    const playlist: { text: string; nodeId: string }[] = [];
+    if (node.title) {
+        playlist.push({ text: node.title, nodeId: node.id });
+    }
+    if (node.type === 'note') {
+        let allHtml = '';
+        let hasContainers = false;
+        try {
+            const canvasDataStr = localStorage.getItem('canvas-storage');
+            if (canvasDataStr) {
+            const canvasData = JSON.parse(canvasDataStr);
+            const page = canvasData.state?.pages?.[node.id];
+            if (page && page.containers && page.containers.length > 0) {
+                hasContainers = true;
+                const sorted = [...page.containers].sort((a: any, b: any) => {
+                if (Math.abs(a.y - b.y) > 50) return a.y - b.y;
+                return a.x - b.x;
+                });
+                sorted.forEach((c: any) => {
+                const cHtml = localStorage.getItem(`note-content-${node.id}-${c.id}`);
+                if (cHtml) allHtml += ' <br> ' + cHtml;
+                });
+            }
+            }
+        } catch (e) {}
+
+        if (!hasContainers) {
+            allHtml = localStorage.getItem(`note-content-${node.id}`) || '';
+        }
+
+        if (allHtml) {
+            const processedHtml = allHtml
+            .replace(/<\/p>/g, '</p>\n')
+            .replace(/<\/h[1-6]>/g, '$&\n')
+            .replace(/<br\s*\/?>/g, '\n')
+            .replace(/<\/div>/g, '</div>\n');
+
+            const div = document.createElement('div');
+            div.innerHTML = processedHtml;
+            const content = (div.textContent || '').replace(/\n/g, '. ').replace(/\s+/g, ' ');
+            if (content.trim()) {
+            playlist.push({ text: content, nodeId: node.id });
+            }
+        }
+    }
+    if (playlist.length > 0) {
+        import('./useWorkspaceStore').then(m => m.useWorkspaceStore.getState().setImmersivePlaylist(playlist));
+    }
+};
+
+const announce = async (message: string, nodeId?: string) => {
   if (typeof window !== 'undefined') {
-    if (ttsWorker) {
-        ttsWorker.postMessage({ type: 'GENERATE', text: message, id: Date.now().toString() });
+    const engineMode = localStorage.getItem('tts-engine-mode') || 'google-api';
+    
+    if (engineMode === 'google-api') {
+      try {
+        const url = `/api/tts?nodeId=${nodeId || ''}&ie=UTF-8&q=${encodeURIComponent(message)}&tl=vi&client=gtx`;
+        const cache = await caches.open('tts-offline-cache');
+        
+        let audioSrc = url;
+        let cachedResponse = await cache.match(url);
+        let foundInCache = false;
+
+        if (cachedResponse) {
+           const blob = await cachedResponse.blob();
+           audioSrc = URL.createObjectURL(blob);
+           foundInCache = true;
+        } else if (!navigator.onLine) {
+           const keys = await cache.keys();
+           // Find longest matching cached text
+           let bestMatchReq = null;
+           let bestMatchLen = 0;
+           for (const req of keys) {
+              const parsed = new URL(req.url);
+              const q = parsed.searchParams.get('q');
+              if (q && q.trim().length > 0) {
+                 const qt = q.trim();
+                 if (message === qt || message.includes(qt)) {
+                    if (qt.length > bestMatchLen) {
+                       bestMatchLen = qt.length;
+                       bestMatchReq = req;
+                    }
+                 }
+              }
+           }
+           if (bestMatchReq) {
+              const res = await cache.match(bestMatchReq);
+              if (res) {
+                 const blob = await res.blob();
+                 audioSrc = URL.createObjectURL(blob);
+                 foundInCache = true;
+              }
+           }
+        }
+        
+         if (!foundInCache && !navigator.onLine) {
+            // Skip network if offline and not in cache to avoid 500 error
+            if (ttsWorker) ttsWorker.postMessage({ type: 'GENERATE', text: message, id: Date.now().toString(), nodeId });
+            return;
+         }
+         
+         if (!foundInCache && navigator.onLine) {
+            try {
+              const response = await fetch(url);
+              const blob = await response.blob();
+              audioSrc = URL.createObjectURL(blob);
+            } catch(fetchError) {
+              console.error('Fetch TTS failed:', fetchError);
+            }
+         }
+        
+        const audio = new Audio(audioSrc);
+        let errorTriggered = false;
+        
+        const handleFallback = () => {
+           if (errorTriggered) return;
+           errorTriggered = true;
+           if (ttsWorker) ttsWorker.postMessage({ type: 'GENERATE', text: message, id: Date.now().toString(), nodeId });
+        };
+
+        audio.onerror = handleFallback;
+        audio.play().then(() => {
+           if ('Notification' in window && Notification.permission === 'granted') {
+               if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                   navigator.serviceWorker.ready.then(registration => {
+                       registration.showNotification('NoteGravity', { 
+                           body: message,
+                           data: { nodeId }
+                       });
+                   }).catch(() => {
+                       const notification = new Notification('NoteGravity', { body: message });
+                       if (nodeId) notification.onclick = () => playNodeContent(nodeId);
+                   });
+               } else {
+                   const notification = new Notification('NoteGravity', { body: message });
+                   if (nodeId) {
+                       notification.onclick = () => playNodeContent(nodeId);
+                   }
+               }
+           }
+        }).catch(handleFallback);
+      } catch (e) {
+        if (ttsWorker) ttsWorker.postMessage({ type: 'GENERATE', text: message, id: Date.now().toString(), nodeId });
+      }
+    } else {
+      if (ttsWorker) {
+          ttsWorker.postMessage({ type: 'GENERATE', text: message, id: Date.now().toString(), nodeId });
+      }
     }
     
     if ('Notification' in window) {
@@ -345,6 +630,7 @@ export const useTreeStore = create<TreeState>()(
   iconPickerNodeIds: null,
   mindmapModalNodeId: null,
   schedulePinModalNodeIds: null,
+  sharedDataQueue: null,
   highlightedBranchId: null,
   pinSchedule: null,
   offlineAsrDevice: 'wasm',
@@ -489,12 +775,18 @@ export const useTreeStore = create<TreeState>()(
   closeIconPicker: () => set({ iconPickerNodeIds: null }),
   openSchedulePinModal: (ids) => set({ schedulePinModalNodeIds: ids, contextMenuNodeId: null }),
   closeSchedulePinModal: () => set({ schedulePinModalNodeIds: null }),
+  openShareDestinationModal: (data) => set({ sharedDataQueue: data }),
+  closeShareDestinationModal: () => set({ sharedDataQueue: null }),
   
   startPinSchedule: (items) => set((state) => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
         Notification.requestPermission();
     }
     initTTSWorker();
+    
+    // Silently cache audio chunks in background
+    silentCacheItems(items, state.data);
+    
     return {
       pinSchedule: { items, isActive: true },
       schedulePinModalNodeIds: null
@@ -526,30 +818,65 @@ export const useTreeStore = create<TreeState>()(
             allFinished = false;
             
             if (!itemCopy.announcedStart) {
-                const name = getFullNodePath(state.data, itemCopy.id);
-                announce(`Bắt đầu ghim ${name}`);
+                const node = findNode(state.data, itemCopy.id);
+                let msg = `Đã ghim ${node?.title || ''}`;
+                
+                if (node?.type === 'note') {
+                   let allHtml = '';
+                   try {
+                     const canvasDataStr = localStorage.getItem('canvas-storage');
+                     if (canvasDataStr) {
+                       const canvasData = JSON.parse(canvasDataStr);
+                       const page = canvasData.state?.pages?.[node.id];
+                       if (page && page.containers && page.containers.length > 0) {
+                         const sorted = [...page.containers].sort((a: any, b: any) => {
+                            if (Math.abs(a.y - b.y) > 50) return a.y - b.y;
+                            return a.x - b.x;
+                         });
+                         sorted.forEach((c: any) => {
+                           const cHtml = localStorage.getItem(`note-content-${node.id}-${c.id}`);
+                           if (cHtml) allHtml += ' <br> ' + cHtml;
+                         });
+                       }
+                     }
+                   } catch (e) {}
+
+                   if (!allHtml) {
+                     allHtml = localStorage.getItem(`note-content-${node.id}`) || '';
+                   }
+
+                   if (allHtml) {
+                       const div = document.createElement('div');
+                       div.innerHTML = allHtml;
+                       
+                       let firstChild = div.firstElementChild;
+                       while (firstChild && firstChild.textContent?.trim() === '') {
+                           firstChild = firstChild.nextElementSibling;
+                       }
+                       
+                       if (firstChild && firstChild.tagName === 'UL' && firstChild.getAttribute('data-type') === 'taskList') {
+                           const items = Array.from(firstChild.querySelectorAll('li'));
+                           const todoText = items.map(li => li.textContent?.trim() || '').filter(t => t).join('. ');
+                           if (todoText) {
+                               msg += `. Cần làm: ${todoText}`;
+                           }
+                       }
+                   }
+                }
+                
+                announce(msg, itemCopy.id);
                 itemCopy.announcedStart = true;
                 modified = true;
             }
             
-            if (now >= itemCopy.endTime - 10000 && !itemCopy.announcedEnd) {
-                const name = getFullNodePath(state.data, itemCopy.id);
-                announce(`Chuẩn bị kết thúc ghim ${name}`);
-                itemCopy.announcedEnd = true;
-                modified = true;
-            }
+
         } else {
             if (state.pinnedIds.has(itemCopy.id)) changed = true;
             if (now < itemCopy.endTime) {
                 allFinished = false;
             } else {
                 // now > itemCopy.endTime
-                if (!itemCopy.announcedUnpin) {
-                    const name = getFullNodePath(state.data, itemCopy.id);
-                    announce(`Đã bỏ ghim ${name}`);
-                    itemCopy.announcedUnpin = true;
-                    modified = true;
-                }
+
             }
         }
         
@@ -1297,6 +1624,7 @@ export const useTreeStore = create<TreeState>()(
           ...currentState,
           ...persistedState,
           expandedIds: new Set(persistedState.expandedIds || []),
+          selectedIds: new Set(persistedState.selectedIds || []),
           hiddenIds: new Set(persistedState.hiddenIds || []),
           pinnedIds: new Set(persistedState.pinnedIds || []),
           lockedIds: new Set(persistedState.lockedIds || []),

@@ -23,6 +23,7 @@ export const EditorView = () => {
   const [showZoomOverlay, setShowZoomOverlay] = useState(false);
   const zoomTimer = useRef<any>(null);
   const panStart = useRef({ x: 0, y: 0, initialScrollLeft: 0, initialScrollTop: 0 });
+  const pinchState = useRef({ initialDistance: 0, initialZoom: 1 });
 
   // Find note details
   const findNode = (nodes: any[], id: string): any => {
@@ -160,7 +161,7 @@ export const EditorView = () => {
     setIsPanning(false);
   };
 
-  // Touch panning
+  // Touch panning and zooming
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 1 && viewportRef.current) {
       // Don't pan if we are in drawing mode (unless it's 'pan' or 'type')
@@ -173,6 +174,15 @@ export const EditorView = () => {
         initialScrollLeft: viewportRef.current.scrollLeft,
         initialScrollTop: viewportRef.current.scrollTop,
       };
+    } else if (e.touches.length === 2) {
+      // Pinch to zoom start
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const distance = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      pinchState.current = {
+        initialDistance: distance,
+        initialZoom: pageData.zoom
+      };
     }
   };
 
@@ -182,11 +192,25 @@ export const EditorView = () => {
       const dy = e.touches[0].clientY - panStart.current.y;
       viewportRef.current.scrollLeft = panStart.current.initialScrollLeft - dx;
       viewportRef.current.scrollTop = panStart.current.initialScrollTop - dy;
+    } else if (e.touches.length === 2 && pinchState.current.initialDistance > 0) {
+      // Pinch to zoom move
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const distance = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      
+      const ratio = distance / pinchState.current.initialDistance;
+      let newZoom = Math.max(0.1, Math.min(3, pinchState.current.initialZoom * ratio));
+      setZoom(docId, newZoom);
+      
+      setShowZoomOverlay(true);
+      if (zoomTimer.current) clearTimeout(zoomTimer.current);
+      zoomTimer.current = setTimeout(() => setShowZoomOverlay(false), 1500);
     }
   };
 
   const handleTouchEnd = () => {
     setIsPanning(false);
+    pinchState.current.initialDistance = 0;
   };
 
   // Keyboard undo/redo for workspace

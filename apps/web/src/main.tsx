@@ -22,3 +22,29 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <App />
   </React.StrictMode>,
 );
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { type: 'module' })
+      .then(reg => {
+        console.log('Service Worker registered with scope:', reg.scope);
+        
+        // Tự động kích hoạt ngay khi cài đặt xong bản mới
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
+              }
+            });
+          }
+        });
+      })
+      .catch(err => console.error('Service Worker registration failed:', err));
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      console.log('Service Worker updated. Skipping auto-reload to prevent loops.');
+    });
+  });
+}

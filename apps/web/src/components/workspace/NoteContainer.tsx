@@ -215,12 +215,13 @@ export const NoteContainer: React.FC<NoteContainerProps> = ({ docId, containerId
   return (
     <div
       ref={containerRef}
+      className="note-container-wrapper group"
       style={{
         position: 'absolute',
         left: containerData.x,
         top: containerData.y,
         width: containerWidth,
-        minWidth: 80,
+        maxWidth: isAutoWidth ? (typeof window !== 'undefined' && window.innerWidth > 768 ? 'min(800px, calc(100vw - 292px))' : 'calc(100vw - 32px)') : undefined,
         height: containerHeight,
         backgroundColor: 'transparent',
         border: handleVisible ? '1px solid #3b82f6' : '1px solid transparent',
@@ -383,7 +384,11 @@ export const NoteContainer: React.FC<NoteContainerProps> = ({ docId, containerId
           isLocked={false}
           onFocus={setActiveEditor}
           onContentChange={handleContentChange}
-          autoWidth={true}
+          onFileUpload={async (file) => {
+            const { uploadFileInChunks } = await import('../../lib/chunkSync');
+            return (await uploadFileInChunks(`${docId}-${containerId}`, file)) as string;
+          }}
+          autoWidth={isAutoWidth}
           autoFocus={isFocused && !localStorage.getItem(`note-content-${docId}-${containerId}`)}
         />
       </div>

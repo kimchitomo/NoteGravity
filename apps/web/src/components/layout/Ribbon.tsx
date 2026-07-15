@@ -1151,7 +1151,7 @@ const ViewRibbonContent = () => {
         if (Math.abs(rectA.top - rectB.top) < 20) return rectA.left - rectB.left;
         return rectA.top - rectB.top;
       });
-      return sorted.map(el => (el as HTMLElement).innerText || '').filter(t => t.trim().length > 0).join('. ');
+      return sorted.map(el => (el as HTMLElement).textContent || '').filter(t => t.trim().length > 0).join('. ');
     }
     
     return '';

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent, Extension } from '@tiptap/react';
 import { Plugin, PluginKey } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
@@ -16,6 +16,9 @@ import { Color } from '@tiptap/extension-color';
 import { FontFamily } from '@tiptap/extension-font-family';
 import { FontSize } from './FontSize';
 import { AudioExtension, VideoExtension, IframeExtension } from './extensions/MediaExtensions';
+import { FileDocumentExtension } from './extensions/FileDocumentExtension';
+import { FileSpreadsheetExtension } from './extensions/FileSpreadsheetExtension';
+import { FileDropExtension } from './FileDropPlugin';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import * as Y from 'yjs';
@@ -25,6 +28,7 @@ import Link from '@tiptap/extension-link';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import TextAlign from '@tiptap/extension-text-align';
+import localforage from 'localforage';
 import Highlight from '@tiptap/extension-highlight';
 import Typography from '@tiptap/extension-typography';
 import Youtube from '@tiptap/extension-youtube';
@@ -84,12 +88,14 @@ export interface TiptapEditorProps {
   isLocked?: boolean;
   onFocus?: (editor: any) => void;
   onContentChange?: () => void;
+  onFileUpload?: (file: File) => Promise<string>;
   autoWidth?: boolean;
   autoFocus?: boolean;
 }
 
-const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-doc-1', createdAt, updatedAt, isLocked, onFocus, onContentChange, autoWidth, autoFocus }) => {
+const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-doc-1', createdAt, updatedAt, isLocked, onFocus, onContentChange, onFileUpload, autoWidth, autoFocus }) => {
   const [headings, setHeadings] = useState<any[]>([]);
+  const loadedForDocId = useRef<string | null>(null);
 
   // Chỉ khởi tạo 1 lần theo docId
   const ydoc = React.useMemo(() => new Y.Doc(), [docId]);
@@ -122,6 +128,9 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
       AudioExtension,
       VideoExtension,
       IframeExtension,
+      FileDocumentExtension,
+      FileSpreadsheetExtension,
+      FileDropExtension.configure({ onFileUpload }),
       CodeBlockLowlight.configure({ lowlight }),
       SlashMenu, 
       FontFamily,
@@ -152,15 +161,29 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
       });
       setHeadings(newHeadings);
       
-      // Auto-save
-      localStorage.setItem(`note-content-${docId}`, editor.getHTML());
+      // Auto-save - only after initial content has been loaded from IndexedDB for THIS docId
+      if (loadedForDocId.current === docId) {
+        const html = editor.getHTML();
+        // Never save empty placeholder content - protect against race conditions
+        if (html && html !== '<p></p>' && html !== '<p>Bắt đầu nhập nội dung tại đây...</p>') {
+          if ((window as any).SyncManager) {
+            (window as any).SyncManager.pushUpdate(`note-content-${docId}`, html).catch((err: any) => {
+              console.error('Lỗi khi lưu note-content vào SyncManager:', err);
+            });
+          } else {
+            localforage.setItem(`note-content-${docId}`, html).catch(err => {
+              console.error('Lỗi khi lưu note-content vào localforage:', err);
+            });
+          }
+        }
+      }
 
       if (transaction.docChanged && onContentChange) {
         onContentChange();
       }
     },
-    // Không dùng 'content' tĩnh khi dùng Collaboration
-    content: localStorage.getItem(`note-content-${docId}`) || (autoFocus ? '<p></p>' : '<p>Bắt đầu nhập nội dung tại đây...</p>'),
+    // Initialize empty, content will be loaded asynchronously in the useEffect below
+    content: '<p></p>',
     editorProps: {
       handleClick(view, pos, event) {
         const textBefore = view.state.doc.textBetween(0, pos, '\n');
@@ -170,7 +193,27 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
         return false;
       }
     },
-  }, [docId]); // Re-create editor when docId changes
+  }, [docId]);
+
+  // Load content asynchronously from IndexedDB
+  useEffect(() => {
+    if (!editor) return;
+    loadedForDocId.current = null; // Block auto-save until content is loaded for this docId
+    localforage.getItem(`note-content-${docId}`).then((savedContent) => {
+      if (savedContent && (savedContent as string) !== '<p></p>') {
+        if (editor.getHTML() !== savedContent) {
+          editor.commands.setContent(savedContent as string);
+        }
+      } else {
+        editor.commands.setContent(autoFocus ? '<p></p>' : '<p>Bắt đầu nhập nội dung tại đây...</p>');
+      }
+      // Mark content as loaded for THIS specific docId - auto-save is now allowed
+      loadedForDocId.current = docId;
+    }).catch(err => {
+      console.error('Failed to load note content from IndexedDB:', err);
+      loadedForDocId.current = docId;
+    });
+  }, [editor, docId, autoFocus]);
 
   useEffect(() => {
     if (editor && isLocked !== undefined) {
@@ -180,7 +223,6 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
 
   useEffect(() => {
     if (editor && autoFocus) {
-      // Use a small timeout to ensure the DOM is ready
       const t = setTimeout(() => editor.commands.focus('end'), 50);
       return () => clearTimeout(t);
     }
@@ -191,10 +233,13 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
     if (!editor) return;
 
     const reloadContent = () => {
-      const savedContent = localStorage.getItem(`note-content-${docId}`);
-      if (savedContent && savedContent !== editor.getHTML()) {
-        editor.commands.setContent(savedContent);
-      }
+      localforage.getItem(`note-content-${docId}`).then((savedContent) => {
+        if (savedContent && savedContent !== editor.getHTML()) {
+          editor.commands.setContent(savedContent as string);
+        }
+      }).catch(err => {
+        console.error('Failed to reload note content from IndexedDB:', err);
+      });
     };
 
     const handleReloadEditor = (e: any) => {
@@ -204,12 +249,18 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
       }
     };
 
+    const handleExternalUpdate = (e: any) => {
+      if (e.detail?.key === `note-content-${docId}`) {
+        reloadContent();
+      }
+    };
+
     window.addEventListener('reload-editor', handleReloadEditor);
-    window.addEventListener('storage', reloadContent);
+    window.addEventListener('external-note-update', handleExternalUpdate);
 
     return () => {
       window.removeEventListener('reload-editor', handleReloadEditor);
-      window.removeEventListener('storage', reloadContent);
+      window.removeEventListener('external-note-update', handleExternalUpdate);
     };
   }, [editor, docId]);
 
@@ -325,7 +376,7 @@ const RealTiptapEditor: React.FC<TiptapEditorProps> = ({ docId = 'notegravity-do
   }, [editor, docId]);
 
   return (
-    <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: autoWidth ? 'max-content' : '100%', minWidth: autoWidth ? 'min-content' : '100%', backgroundColor: 'transparent' }}>
+    <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: autoWidth ? 'fit-content' : '100%', minWidth: autoWidth ? 'min-content' : '100%', backgroundColor: 'transparent' }}>
 
       {/* Editor Content Area */}
       <div className="editor-scroll-area" style={{ display: 'flex', flexDirection: 'row', flex: 1, overflow: 'hidden' }}>
@@ -374,10 +425,17 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = (props) => {
     return () => clearTimeout(timer);
   }, [props.docId, props.autoFocus]);
 
+  const [savedHTML, setSavedHTML] = useState<string | null>(null);
+
+  useEffect(() => {
+    localforage.getItem(`note-content-${props.docId || 'notegravity-doc-1'}`).then((val) => {
+      setSavedHTML(val as string);
+    }).catch(() => {});
+  }, [props.docId]);
+
   if (!shouldLoad) {
-    const saved = localStorage.getItem(`note-content-${props.docId || 'notegravity-doc-1'}`);
     return (
-      <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: 'var(--bg-color)' }}>
+      <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: 'transparent' }}>
 
         <div className="editor-scroll-area" style={{ display: 'flex', flexDirection: 'row', flex: 1, overflow: 'hidden' }}>
           <div 
@@ -392,8 +450,8 @@ export const TiptapEditor: React.FC<TiptapEditorProps> = (props) => {
               }
             }}
           >
-             {saved ? (
-               <div dangerouslySetInnerHTML={{ __html: saved }} />
+             {savedHTML ? (
+               <div dangerouslySetInnerHTML={{ __html: savedHTML }} />
              ) : (
                <div style={{ color: '#999', padding: '1rem', fontStyle: 'italic' }}>Đang tải...</div>
              )}

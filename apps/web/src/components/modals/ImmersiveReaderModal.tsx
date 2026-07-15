@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { X, Play, Pause, Square, Volume2, Type, ZoomIn, ZoomOut, Loader2, AlertCircle, Wifi, WifiOff, Download, Mic, MicOff, CloudDownload, Check, SkipBack, SkipForward, RotateCcw, RotateCw, Trash2, ChevronDown, ChevronUp, Cpu, ChevronRight } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTreeStore, findNodeById } from '../../store/useTreeStore';
@@ -33,8 +34,21 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
   const autoPlayTriggeredRef = useRef(false);
   const [selectedVoiceName, setSelectedVoiceName] = useState<string>('');
   const [engineOverride, setEngineOverride] = useState<'google' | 'google-api' | 'xenova' | null>(null);
-  const [engineMode, setEngineMode] = useState<'google-api' | 'xenova'>('google-api');
-  const immersivePlaylist = useWorkspaceStore(state => state.immersivePlaylist);
+  const [engineMode, setEngineMode] = useState<'google-api' | 'xenova'>(() => {
+    if (typeof window !== 'undefined') {
+       return (localStorage.getItem('tts-engine-mode') as any) || 'google-api';
+    }
+    return 'google-api';
+  });
+
+  const handleSetEngineMode = (mode: 'google-api' | 'xenova') => {
+    setEngineMode(mode);
+    if (typeof window !== 'undefined') {
+       localStorage.setItem('tts-engine-mode', mode);
+    }
+  };
+  const { immersivePlaylist } = useWorkspaceStore();
+  const immersivePlaylistStr = immersivePlaylist ? JSON.stringify(immersivePlaylist) : '';
   const { setFocus, setSelected, expandedIds, toggleExpand, data } = useTreeStore();
 
   const globalChunks = React.useMemo(() => {
@@ -167,8 +181,15 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
         for (const req of keys) {
            const res = await cache.match(req);
            if (res) {
-              const blob = await res.blob();
-              const sizeKB = (blob.size / 1024).toFixed(1);
+              let sizeKB = '0.0';
+              const contentLength = res.headers.get('content-length');
+              if (contentLength) {
+                 sizeKB = (parseInt(contentLength, 10) / 1024).toFixed(1);
+              } else {
+                 const blob = await res.blob();
+                 sizeKB = (blob.size / 1024).toFixed(1);
+              }
+              
               const parsed = new URL(req.url);
               const nodeId = parsed.searchParams.get('nodeId') || '';
               const q = parsed.searchParams.get('q') || '';
@@ -194,6 +215,15 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
      if (isOpen) {
         updateCachedItems();
      }
+     
+     const handleCacheUpdated = () => {
+         updateCachedItems();
+     };
+     
+     window.addEventListener('tts-offline-cache-updated', handleCacheUpdated);
+     return () => {
+         window.removeEventListener('tts-offline-cache-updated', handleCacheUpdated);
+     };
   }, [isOpen, isCachedOffline]);
 
   const statusRef = useRef(status);
@@ -432,6 +462,24 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
     }
   }, [isOpen, status, globalChunks]);
 
+  const prevPlaylistRef = useRef(immersivePlaylist ? JSON.stringify(immersivePlaylist) : '');
+  useEffect(() => {
+    const currentStr = immersivePlaylist ? JSON.stringify(immersivePlaylist) : '';
+    if (isOpen && currentStr !== prevPlaylistRef.current) {
+       prevPlaylistRef.current = currentStr;
+       if (immersivePlaylist && immersivePlaylist.length > 0) {
+          // Ngay khi danh sách thay đổi, tự động phát luôn đoạn đầu tiên
+          // setTimeout đảm bảo handlePlay truy cập state mới nhất nếu cần
+          setTimeout(() => {
+             autoPlayTriggeredRef.current = true;
+             handlePlay(0);
+          }, 50);
+       }
+    } else if (!isOpen) {
+       prevPlaylistRef.current = '';
+    }
+  }, [immersivePlaylistStr, isOpen]);
+
   useEffect(() => {
     if (status === 'playing' || status === 'paused') {
       document.body.classList.add('reading-mode-active');
@@ -505,6 +553,37 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
     
     window.addEventListener('immersive-reader-click', handleClickJump);
     return () => window.removeEventListener('immersive-reader-click', handleClickJump);
+  }, [globalChunks]);
+
+  useEffect(() => {
+    const handleNodeClickJump = (e: any) => {
+      const { nodeId } = e.detail;
+      if (!nodeId) return;
+      
+      const targetIndex = globalChunks.findIndex(chunk => chunk.nodeId === nodeId);
+      
+      if (targetIndex >= 0) {
+         lastSeekTimeRef.current = Date.now();
+         cursorChunkIndexRef.current = targetIndex;
+         seekOffsetRef.current = 0;
+         
+         if (statusRef.current === 'playing' || statusRef.current === 'paused') {
+             handlePlay(targetIndex);
+         }
+      } else {
+         if (statusRef.current === 'playing' || statusRef.current === 'paused') {
+             const state = useTreeStore.getState();
+             const node = findNodeById(state.data, nodeId);
+             if (node) {
+                 startTextRef.current = null;
+                 playNodeCache(node);
+             }
+         }
+      }
+    };
+    
+    window.addEventListener('immersive-reader-node-click', handleNodeClickJump);
+    return () => window.removeEventListener('immersive-reader-node-click', handleNodeClickJump);
   }, [globalChunks]);
 
   const onChunkStart = (idx: number) => {
@@ -611,6 +690,9 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
         shouldContinueRef.current = false; // Kill any running play loop immediately
         window.speechSynthesis.cancel();
         if (audioApiRef.current) { audioApiRef.current.pause(); audioApiRef.current.src = ''; }
+        if (sourceNodeRef.current) {
+          try { sourceNodeRef.current.stop(); } catch (e) {}
+        }
       }
 
       const actualStartIndex = forceStartIndex !== undefined ? forceStartIndex : (cursorChunkIndexRef.current !== null ? cursorChunkIndexRef.current : 0);
@@ -666,7 +748,7 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
             
             const chunk = chunks[currentChunk];
             let chunkText = chunk.text;
-            if (currentChunk === startIndex && seekOffsetRef.current > 0) {
+            if (currentChunk === actualStartIndex && seekOffsetRef.current > 0) {
                if (seekOffsetRef.current < chunkText.length) {
                   chunkText = chunkText.substring(seekOffsetRef.current).trim();
                }
@@ -799,19 +881,38 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
            
            // If strict match fails, use loose matching on 'q' parameter
            const keys = await cache.keys();
+           let bestMatchReq = null;
            for (const req of keys) {
               const parsed = new URL(req.url);
               const q = parsed.searchParams.get('q');
-              if (q && q.trim() === chunkText) {
-                 const res = await cache.match(req);
-                 if (res) {
-                    const blob = await res.blob();
-                    return URL.createObjectURL(blob);
+              if (q && q.trim().length > 0) {
+                 const qt = q.trim();
+                 if (chunkText === qt) {
+                    bestMatchReq = req;
+                    break;
                  }
               }
            }
+           if (bestMatchReq) {
+              const res = await cache.match(bestMatchReq);
+              if (res) {
+                 const blob = await res.blob();
+                 return URL.createObjectURL(blob);
+              }
+           }
          } catch(e) {}
-         return url;
+         // If not found in cache (or cache fails), fetch it using JS fetch API.
+         // This is REQUIRED on iOS Safari when using a self-signed HTTPS certificate,
+         // because the OS media player (Audio) does not share the browser's cert exceptions
+         // and will reject the direct relative URL.
+         try {
+           const response = await fetch(url);
+           const blob = await response.blob();
+           return URL.createObjectURL(blob);
+         } catch(fetchError) {
+           console.error('Fetch TTS failed:', fetchError);
+           return url; // fallback to URL if fetch fails
+         }
       };
 
       setStatus('generating');
@@ -1020,7 +1121,8 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
       if (activeEngine === 'google-api') {
          if (playingChunkIndex >= 0 && playingChunkIndex < globalChunks.length - 1) {
             handleStop();
-            handleGoogleApiPlay(playingChunkIndex + 1);
+            playSessionIdRef.current++;
+            handleGoogleApiPlay(playingChunkIndex + 1, playSessionIdRef.current);
          }
       }
    };
@@ -1029,7 +1131,8 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
       if (activeEngine === 'google-api') {
          if (playingChunkIndex > 0) {
             handleStop();
-            handleGoogleApiPlay(playingChunkIndex - 1);
+            playSessionIdRef.current++;
+            handleGoogleApiPlay(playingChunkIndex - 1, playSessionIdRef.current);
          }
       }
    };
@@ -1046,12 +1149,12 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
       }
    };
 
-   const playNodeCache = (node: TreeNode) => {
-      const collectNotes = (n: TreeNode): TreeNode[] => {
+   const playNodeCache = (node: any) => {
+      const collectNotes = (n: any): any[] => {
          if (n.type === 'note') return [n];
-         let list: TreeNode[] = [];
+         let list: any[] = [];
          if (n.children) {
-            n.children.forEach(c => {
+            n.children.forEach((c: any) => {
                list = list.concat(collectNotes(c));
             });
          }
@@ -1116,12 +1219,26 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
       }
    };
 
-   const downloadNodeMp3 = async (node: TreeNode) => {
-      const collectNotes = (n: TreeNode): TreeNode[] => {
+   const createOfflinePlaylist = (node: any) => {
+      const collectNotes = (n: any): any[] => {
          if (n.type === 'note') return [n];
-         let list: TreeNode[] = [];
+         let list: any[] = [];
          if (n.children) {
-            n.children.forEach(c => {
+            n.children.forEach((c: any) => {
+               list = list.concat(collectNotes(c));
+            });
+         }
+         return list;
+      };
+      // ... rest of logic
+   };
+
+   const downloadNodeMp3 = async (node: any) => {
+      const collectNotes = (n: any): any[] => {
+         if (n.type === 'note') return [n];
+         let list: any[] = [];
+         if (n.children) {
+            n.children.forEach((c: any) => {
                list = list.concat(collectNotes(c));
             });
          }
@@ -1300,14 +1417,14 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
       }
    };
 
-   const deleteNodeCache = async (node: TreeNode) => {
+   const deleteNodeCache = async (node: any) => {
       if (!confirm(`Bạn có chắc chắn muốn xóa toàn bộ audio offline của mục: "${node.title}"?`)) return;
       
-      const collectNotes = (n: TreeNode): TreeNode[] => {
+      const collectNotes = (n: any): any[] => {
          if (n.type === 'note') return [n];
-         let list: TreeNode[] = [];
+         let list: any[] = [];
          if (n.children) {
-            n.children.forEach(c => {
+            n.children.forEach((c: any) => {
                list = list.concat(collectNotes(c));
             });
          }
@@ -1366,9 +1483,9 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
 
   if (!isOpen) return null;
 
-  return (
+  const modalContent = (
     <div style={{
-      position: 'fixed', bottom: '24px', right: '24px', width: '320px', zIndex: 100000, 
+      position: 'fixed', bottom: '16px', right: '16px', width: '320px', maxWidth: 'calc(100vw - 32px)', zIndex: 100000, 
       backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
       display: 'flex', flexDirection: 'column', color: '#1a202c', overflow: 'hidden', border: '1px solid #e2e8f0'
     }}>
@@ -1390,10 +1507,7 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
           <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b' }}>BỘ ĐỌC PHÁT ÂM:</span>
           <div style={{ display: 'flex', gap: '4px', backgroundColor: '#f1f5f9', padding: '2px', borderRadius: '6px' }}>
             <button 
-              onClick={() => {
-                 setEngineOverride('google-api');
-                 setEngineMode('google-api');
-              }}
+              onClick={() => handleSetEngineMode('google-api')}
               style={{
                  flex: 1, padding: '4px 6px', fontSize: '11px', border: 'none', borderRadius: '4px', cursor: 'pointer',
                  backgroundColor: activeEngine === 'google-api' ? '#fff' : 'transparent',
@@ -1686,4 +1800,6 @@ export const ImmersiveReaderModal: React.FC<ImmersiveReaderModalProps> = ({ isOp
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? ReactDOM.createPortal(modalContent, document.body) : modalContent;
 };

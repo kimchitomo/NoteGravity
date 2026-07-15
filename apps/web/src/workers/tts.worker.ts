@@ -4,11 +4,17 @@ import { pipeline, env } from '@huggingface/transformers';
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 
+const originalWarn = console.warn;
+console.warn = (...args) => {
+    if (args[0] && typeof args[0] === 'string' && args[0].includes('Failed to cache')) return;
+    originalWarn(...args);
+};
+
 let synthesizer: any = null;
 let isInitializing = false;
 
 self.onmessage = async (event: MessageEvent) => {
-    const { type, text, id } = event.data;
+    const { type, text, id, nodeId } = event.data;
 
     if (type === 'INIT') {
         if (!synthesizer && !isInitializing) {
@@ -70,7 +76,8 @@ self.onmessage = async (event: MessageEvent) => {
                 audio: out.audio,
                 sampling_rate: out.sampling_rate,
                 text,
-                id
+                id,
+                nodeId
             });
         } catch (error: any) {
             self.postMessage({ status: 'error', error: error.message || error.toString(), id });

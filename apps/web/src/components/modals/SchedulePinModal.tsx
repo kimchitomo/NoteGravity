@@ -15,10 +15,33 @@ export const SchedulePinModal = () => {
 
   useEffect(() => {
     if (schedulePinModalNodeIds && schedulePinModalNodeIds.length > 0) {
+      // Collect all descendants of the selected nodes
+      const expandIds = (nodes: any[], targetIds: string[]): string[] => {
+        const result: string[] = [];
+        const targets = new Set(targetIds);
+        
+        const traverse = (nodeList: any[], isParentSelected: boolean) => {
+            for (const n of nodeList) {
+                const selected = isParentSelected || targets.has(n.id);
+                if (selected) {
+                    result.push(n.id);
+                }
+                if (n.children) {
+                    traverse(n.children, selected);
+                }
+            }
+        };
+        
+        traverse(nodes, false);
+        return result;
+      };
+
+      const expandedIds = expandIds(data, schedulePinModalNodeIds);
+
       // Calculate initial timeline
       const now = Date.now();
       const intervalMs = minutes * 60 * 1000;
-      const initialItems: PinScheduleItem[] = schedulePinModalNodeIds.map((id, index) => {
+      const initialItems: PinScheduleItem[] = expandedIds.map((id, index) => {
         return {
           id,
           startTime: now + (index * intervalMs),
@@ -27,7 +50,7 @@ export const SchedulePinModal = () => {
       });
       setScheduleItems(initialItems);
     }
-  }, [schedulePinModalNodeIds, minutes]);
+  }, [schedulePinModalNodeIds, minutes, data]);
 
   if (!schedulePinModalNodeIds) return null;
 
@@ -81,8 +104,6 @@ export const SchedulePinModal = () => {
     setEditingId(null);
   };
 
-  const selectedCount = schedulePinModalNodeIds.length;
-  
   let globalStart = scheduleItems.length > 0 ? Math.min(...scheduleItems.map(i => i.startTime)) : 0;
   let globalEnd = scheduleItems.length > 0 ? Math.max(...scheduleItems.map(i => i.endTime)) : 0;
 
@@ -112,7 +133,7 @@ export const SchedulePinModal = () => {
 
         <div style={{ overflowY: 'auto', paddingRight: '8px', flex: 1 }}>
           <p style={{ margin: '0 0 16px 0', fontSize: '14px', opacity: 0.8 }}>
-            Bạn đã chọn <strong>{selectedCount}</strong> ghi chú.
+            Bạn đang lên lịch cho <strong>{scheduleItems.length}</strong> ghi chú (bao gồm cả các mục con cháu).
           </p>
 
           <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--hover-bg, #f5f5f5)', borderRadius: '6px' }}>
